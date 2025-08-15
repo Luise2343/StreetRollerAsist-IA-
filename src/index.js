@@ -10,9 +10,14 @@ import payments from './routes/payments.routes.js';
 import inventory from './routes/inventory.routes.js';
 
 const app = express();
+// IMPORTANTE: esto debe ir antes de otros app.use(...)
+app.use(express.json({
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 app.use(cors());
-app.use(express.json());
 
+
+  
 // health
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/health/db', async (_req, res) => {
