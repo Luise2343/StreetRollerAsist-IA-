@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { pool } from '../config/db.js';
 import { getContext, pushTurn, clearSession } from '../services/context.js';
 import { aiReplyStrict } from '../services/ia.js';
 import crypto from 'crypto';
@@ -45,8 +44,7 @@ async function markAsRead(messageId) {
   }).catch(() => {});
 }
 
-
-// GET verificación (ya lo tienes)
+// GET verificación (Meta callback)
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -56,60 +54,6 @@ router.get('/', (req, res) => {
   }
   return res.sendStatus(403);
 });
-
-async function replyFromDB(text) {
-  const t = (text || '').trim().toLowerCase();
-
-  // 1) lista → 5 productos recientes
-  if (t.startsWith('lista')) {
-    const { rows } = await pool.query(`
-      SELECT name, base_price, currency
-      FROM product
-      WHERE active = true
-      ORDER BY id DESC
-      LIMIT 5
-    `);
-    if (!rows.length) return 'No hay productos aún.';
-    const lines = rows.map(r => `• ${r.name} — ${r.base_price} ${r.currency}`);
-    return `Top productos:\n${lines.join('\n')}\n\nPide "precio <nombre>" o "stock <nombre>".`;
-  }
-
-  // 2) precio <texto>
-  const mPrecio = t.match(/^precio\s+(.+)/);
-  if (mPrecio) {
-    const q = `%${mPrecio[1]}%`;
-    const { rows } = await pool.query(`
-      SELECT name, base_price, currency
-      FROM product
-      WHERE LOWER(name) LIKE LOWER($1)
-      ORDER BY id DESC
-      LIMIT 1
-    `, [q]);
-    if (!rows.length) return 'No encontré ese producto.';
-    const p = rows[0];
-    return `Precio de ${p.name}: ${p.base_price} ${p.currency}`;
-  }
-
-  // 3) stock <texto>
-  const mStock = t.match(/^stock\s+(.+)/);
-  if (mStock) {
-    const q = `%${mStock[1]}%`;
-    const { rows } = await pool.query(`
-      SELECT p.name, COALESCE(i.qty_on_hand,0) AS qty
-      FROM product p
-      LEFT JOIN inventory i ON i.product_id = p.id
-      WHERE LOWER(p.name) LIKE LOWER($1)
-      ORDER BY p.id DESC
-      LIMIT 1
-    `, [q]);
-    if (!rows.length) return 'No encontré ese producto.';
-    const r = rows[0];
-    return `Stock de ${r.name}: ${r.qty} unidades.`;
-  }
-
-  // nada matcheó → que responda el fallback/IA
-  return null;
-}
 
 function isMetaSignatureValid(req) {
   try {
@@ -121,7 +65,6 @@ function isMetaSignatureValid(req) {
       .update(req.rawBody)
       .digest('hex');
 
-    // comparación “tiempo-constante”
     return crypto.timingSafeEqual(
       Buffer.from(signature),
       Buffer.from(expected)
@@ -131,12 +74,11 @@ function isMetaSignatureValid(req) {
   }
 }
 
-// POST: leer mensaje y responder texto fijo
+// POST: recibir mensaje y responder
 router.post('/', async (req, res) => {
-  // rechaza si la firma no coincide
-if (!isMetaSignatureValid(req)) {
-  return res.sendStatus(403);
-}
+  if (!isMetaSignatureValid(req)) {
+    return res.sendStatus(403);
+  }
   try {
     const entry = req.body?.entry?.[0];
     const changes = entry?.changes?.[0];
@@ -145,91 +87,84 @@ if (!isMetaSignatureValid(req)) {
 
     if (Array.isArray(messages)) {
       for (const msg of messages) {
-        // ignora no-text y duplicados
         if (msg.type !== 'text') continue;
         if (seen.has(msg.id)) continue;
         remember(msg.id);
 
-        // marca como leído (mejor UX)
         await markAsRead(msg.id);
         const from = msg.from;
         const text = msg.text?.body ?? '';
-        // 0) si hubo inactividad, resumimos el bloque anterior y lo depuramos
-          try {
-            await summarizeIfInactive(from);
-          } catch (e) {
-            console.error('summarizeIfInactive error:', e.message);
-          }
-         // 1) RAM (turnos recientes)
-          const ctxRam = await getContext(from);
 
-          // 2) DB (siempre traemos resumen y facts; y también turnos post-resumen)
-          let summary = null, profileFacts = null, dbTurns = [];
-          try {
-            const hyr = await rehydrateContext(from);
-            summary      = hyr?.summary || null;
-            profileFacts = hyr?.profileFacts || null;
-            dbTurns      = hyr?.turns || [];
-          } catch (e) {
-            console.error('rehydrateContext error:', e.message);
-          }
+        // 0) si hubo inactividad, resumimos
+        try {
+          await summarizeIfInactive(from);
+        } catch (e) {
+          console.error('summarizeIfInactive error:', e.message);
+        }
 
-          // 3) Construye el ctx para la IA:
-          //    - turns: usa RAM si existe; si no, usa los de DB
-          //    - summary/profileFacts: SIEMPRE desde DB
-          const ctx = {
-            turns: (ctxRam?.turns?.length ? ctxRam.turns : dbTurns),
-            summary,
-            profileFacts
-          };
-          console.log('CTX listo →', {
-            hasSummary: !!summary,
-            hasFacts: !!profileFacts,
-            turnsFrom: (ctxRam?.turns?.length ? 'ram' : 'db'),
-            turns: (ctxRam?.turns?.length ? ctxRam.turns.length : dbTurns.length)
-          });
+        // 1) RAM (turnos recientes)
+        const ctxRam = await getContext(from);
+
+        // 2) DB (resumen + facts)
+        let summary = null, profileFacts = null, dbTurns = [];
+        try {
+          const hyr = await rehydrateContext(from);
+          summary      = hyr?.summary || null;
+          profileFacts = hyr?.profileFacts || null;
+          dbTurns      = hyr?.turns || [];
+        } catch (e) {
+          console.error('rehydrateContext error:', e.message);
+        }
+
+        // 3) Construye el ctx
+        const ctx = {
+          turns: (ctxRam?.turns?.length ? ctxRam.turns : dbTurns),
+          summary,
+          profileFacts
+        };
+
+        console.log('CTX listo →', {
+          hasSummary: !!summary,
+          hasFacts: !!profileFacts,
+          turnsFrom: (ctxRam?.turns?.length ? 'ram' : 'db'),
+          turns: (ctxRam?.turns?.length ? ctxRam.turns.length : dbTurns.length)
+        });
 
         // Guarda el entrante
-          await logIncoming({
-            waId: from,
-            providerMsgId: msg.id,         // id de Meta del mensaje entrante
-            body: text,
-            msgType: 'text',
-            meta: { meta_type: msg.type, timestamp: msg.timestamp }
-          });
-
+        await logIncoming({
+          waId: from,
+          providerMsgId: msg.id,
+          body: text,
+          msgType: 'text',
+          meta: { meta_type: msg.type, timestamp: msg.timestamp }
+        });
 
         console.log('WA IN ⬇️', { from, text, type: msg.type });
+
         if (/^(reset|reiniciar|nuevo)$/i.test(text.trim())) {
           clearSession(from);
           const reply = 'Conversación reiniciada ✅';
-          await sendWaText(from, reply); // usa tu misma lógica de envío
+          await sendWaText(from, reply);
           await logOutgoing({
             waId: from,
-            providerMsgId: null,   // la función sendWaText no devuelve el id; está ok dejarlo en null
+            providerMsgId: null,
             body: reply,
             msgType: 'text',
             meta: { reason: 'reset' }
           });
           continue;
-          }    
-           // 1) IA primero
-            let replySource = 'ai';
-            let reply = await aiReplyStrict(text, ctx);
+        }
 
-            // 2) Si IA falla (null), intenta con la BD
-            if (!reply) {
-              reply = await replyFromDB(text);
-              replySource = reply ? 'db' : replySource;
-            }
+        // IA responde (ella decide si llama a la DB o no)
+        let replySource = 'ai';
+        let reply = await aiReplyStrict(text, ctx);
 
-            // 3) Si tampoco hay respuesta, mensaje guía ultra-corto
-            if (!reply) {
-              reply = 'Puedo ayudarte con precios y stock. Escribe "lista", "precio <producto>" o "stock <producto>".';
-              replySource = 'guide';
-            }
+        if (!reply) {
+          reply = "Lo siento, no entendí tu mensaje. ¿Quieres que te muestre productos disponibles?";
+          replySource = 'fallback';
+        }
 
-        // 2) enviar por WhatsApp
+        // enviar por WhatsApp
         const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
         const body = {
           messaging_product: 'whatsapp',
@@ -248,7 +183,7 @@ if (!isMetaSignatureValid(req)) {
         const outId = data?.messages?.[0]?.id || null;
         await logOutgoing({
           waId: from,
-          providerMsgId: outId,        // id de Meta del mensaje enviado (si viene)
+          providerMsgId: outId,
           body: reply,
           msgType: 'text',
           meta: { source: replySource, httpStatus: r.status }
@@ -256,17 +191,16 @@ if (!isMetaSignatureValid(req)) {
 
         if (!r.ok) console.error('WA OUT ❌', r.status, data);
         else       console.log('WA OUT ✅', data);
+
         pushTurn(from, text, reply);
-  }
+      }
     }
 
-    // WhatsApp requiere 200 rápido
-    res.sendStatus(200);
+    res.sendStatus(200); // WhatsApp requiere 200 rápido
   } catch (e) {
     console.error('Webhook POST error:', e);
     res.sendStatus(200);
   }
 });
-
 
 export default router;
