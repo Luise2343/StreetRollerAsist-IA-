@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { pool } from '../config/db.js';
 import { getContext, pushTurn, clearSession } from '../services/context.js';
-import { aiReplyStrict } from '../services/ia.js';import crypto from 'crypto';
+import { aiReplyStrict } from '../services/ia.js';
+import crypto from 'crypto';
+import { logIncoming, logOutgoing } from '../services/message.store.js';
+import { summarizeIfInactive } from '../services/summarize.service.js';
+import { rehydrateContext } from '../services/context.rehydrate.js';
 
 const router = Router();
 
@@ -150,24 +154,62 @@ if (!isMetaSignatureValid(req)) {
         await markAsRead(msg.id);
         const from = msg.from;
         const text = msg.text?.body ?? '';
-        const ctx  = getContext(from);
+        // 0) si hubo inactividad, resumimos el bloque anterior y lo depuramos
+          try {
+            await summarizeIfInactive(from);
+          } catch (e) {
+            console.error('summarizeIfInactive error:', e.message);
+          }
+         const ctxRam = await getContext(from);
+          let ctx = ctxRam;
+          if (!ctxRam?.turns?.length) {
+            try {
+              const hyr = await rehydrateContext(from);
+              // ctx para la IA = turns rehidratados + summary (sin tocar aún la RAM)
+              ctx = { turns: hyr.turns || [], summary: hyr.summary || null, profileFacts: hyr.profileFacts || null };
+            } catch (e) {
+              console.error('rehydrateContext error:', e.message);
+            }
+          }
+        // Guarda el entrante
+          await logIncoming({
+            waId: from,
+            providerMsgId: msg.id,         // id de Meta del mensaje entrante
+            body: text,
+            msgType: 'text',
+            meta: { meta_type: msg.type, timestamp: msg.timestamp }
+          });
+
 
         console.log('WA IN ⬇️', { from, text, type: msg.type });
         if (/^(reset|reiniciar|nuevo)$/i.test(text.trim())) {
           clearSession(from);
           const reply = 'Conversación reiniciada ✅';
           await sendWaText(from, reply); // usa tu misma lógica de envío
+          await logOutgoing({
+            waId: from,
+            providerMsgId: null,   // la función sendWaText no devuelve el id; está ok dejarlo en null
+            body: reply,
+            msgType: 'text',
+            meta: { reason: 'reset' }
+          });
           continue;
-          }
+          }    
+           // 1) IA primero
+            let replySource = 'ai';
+            let reply = await aiReplyStrict(text, ctx);
 
-          // 1) IA primero
-          let reply = await aiReplyStrict(text, ctx);
+            // 2) Si IA falla (null), intenta con la BD
+            if (!reply) {
+              reply = await replyFromDB(text);
+              replySource = reply ? 'db' : replySource;
+            }
 
-          // 2) Si IA falla (null), intenta con la BD
-          if (!reply) reply = await replyFromDB(text);
-
-          // 3) Si tampoco hay respuesta, mensaje guía ultra-corto
-          if (!reply) reply = 'Puedo ayudarte con precios y stock. Escribe "lista", "precio <producto>" o "stock <producto>".';
+            // 3) Si tampoco hay respuesta, mensaje guía ultra-corto
+            if (!reply) {
+              reply = 'Puedo ayudarte con precios y stock. Escribe "lista", "precio <producto>" o "stock <producto>".';
+              replySource = 'guide';
+            }
 
         // 2) enviar por WhatsApp
         const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -185,6 +227,15 @@ if (!isMetaSignatureValid(req)) {
           body: JSON.stringify(body)
         });
         const data = await r.json().catch(() => ({}));
+        const outId = data?.messages?.[0]?.id || null;
+        await logOutgoing({
+          waId: from,
+          providerMsgId: outId,        // id de Meta del mensaje enviado (si viene)
+          body: reply,
+          msgType: 'text',
+          meta: { source: replySource, httpStatus: r.status }
+        });
+
         if (!r.ok) console.error('WA OUT ❌', r.status, data);
         else       console.log('WA OUT ✅', data);
         pushTurn(from, text, reply);
