@@ -8,12 +8,19 @@ import customers from './routes/customers.routes.js';
 import orders from './routes/orders.routes.js';
 import payments from './routes/payments.routes.js';
 import inventory from './routes/inventory.routes.js';
+import morgan from 'morgan';
+import healthRouter from './routes/health.routes.js';
 
 const app = express();
 // IMPORTANTE: esto debe ir antes de otros app.use(...)
 app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
+if (process.env.LOG_HTTP !== '0' && process.env.LOG_HTTP !== 'false') {
+   app.use(morgan('tiny'));
+ }
+
+ app.use(healthRouter); // expone GET /health
 app.use(cors());
 
 
@@ -31,7 +38,7 @@ app.use('/api/customers', customers);
 app.use('/api/orders', orders);
 app.use('/api/payments', payments);
 app.use('/api/inventory', inventory);
-app.use('/webhooks/whatsapp', whatsappWebhook);
+app.use('/webhooks/whatsapp', whatsappWebhook); 
 console.log('Mounted: GET/POST /webhooks/whatsapp');
 
 const port = process.env.PORT ?? 3000;

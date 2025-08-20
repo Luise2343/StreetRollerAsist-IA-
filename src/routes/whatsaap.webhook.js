@@ -160,17 +160,35 @@ if (!isMetaSignatureValid(req)) {
           } catch (e) {
             console.error('summarizeIfInactive error:', e.message);
           }
-         const ctxRam = await getContext(from);
-          let ctx = ctxRam;
-          if (!ctxRam?.turns?.length) {
-            try {
-              const hyr = await rehydrateContext(from);
-              // ctx para la IA = turns rehidratados + summary (sin tocar aún la RAM)
-              ctx = { turns: hyr.turns || [], summary: hyr.summary || null, profileFacts: hyr.profileFacts || null };
-            } catch (e) {
-              console.error('rehydrateContext error:', e.message);
-            }
+         // 1) RAM (turnos recientes)
+          const ctxRam = await getContext(from);
+
+          // 2) DB (siempre traemos resumen y facts; y también turnos post-resumen)
+          let summary = null, profileFacts = null, dbTurns = [];
+          try {
+            const hyr = await rehydrateContext(from);
+            summary      = hyr?.summary || null;
+            profileFacts = hyr?.profileFacts || null;
+            dbTurns      = hyr?.turns || [];
+          } catch (e) {
+            console.error('rehydrateContext error:', e.message);
           }
+
+          // 3) Construye el ctx para la IA:
+          //    - turns: usa RAM si existe; si no, usa los de DB
+          //    - summary/profileFacts: SIEMPRE desde DB
+          const ctx = {
+            turns: (ctxRam?.turns?.length ? ctxRam.turns : dbTurns),
+            summary,
+            profileFacts
+          };
+          console.log('CTX listo →', {
+            hasSummary: !!summary,
+            hasFacts: !!profileFacts,
+            turnsFrom: (ctxRam?.turns?.length ? 'ram' : 'db'),
+            turns: (ctxRam?.turns?.length ? ctxRam.turns.length : dbTurns.length)
+          });
+
         // Guarda el entrante
           await logIncoming({
             waId: from,
