@@ -1,5 +1,6 @@
-// src/services/ia.js
 import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
 import { searchProducts, listAllProducts } from "./products.search.js";
 
 const OPENAI_ENABLED = (process.env.OPENAI_ENABLED ?? "true") !== "false";
@@ -15,33 +16,21 @@ if (OPENAI_ENABLED && process.env.OPENAI_API_KEY) {
   openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
-export const SYSTEM = `
-Eres un asistente de ventas para una tienda de patines.
-Tu comportamiento es el siguiente:
+export const SYSTEM = fs.readFileSync(
+  path.resolve(process.cwd(), "src/policy/prompts/prompts.txt"),
+  "utf8"
+);
 
-1. Siempre que el cliente pregunte por productos, tallas o colores:
-   - Llama a la función SEARCH_PRODUCTS con el texto y/o talla que detectes en el mensaje.
-   - Nunca digas que "no hay stock" sin haber consultado la base de datos.
+const SLOTS_SCHEMA_PATH = path.resolve(process.cwd(), "src/policy/slots.schema.json");
+let SLOTS_SCHEMA = null;
+try {
+  const raw = fs.readFileSync(SLOTS_SCHEMA_PATH, "utf8");
+  SLOTS_SCHEMA = JSON.parse(raw);
+  console.log("Slots schema cargado ✅", SLOTS_SCHEMA?.version || "");
+} catch (e) {
+  console.warn("Slots schema no encontrado o inválido. Ruta esperada:", SLOTS_SCHEMA_PATH);
+}
 
-2. Si SEARCH_PRODUCTS no devuelve resultados:
-   - Responde claramente: "No encontré patines en talla/color <X>. 
-     Pero puedo mostrarte otras opciones."
-
-3. Cuando muestres productos:
-   - Muestra un máximo de 5 opciones.
-   - Usa viñetas o enumeración simple.
-   - Incluye nombre, talla, precio .
-   
-
-4. Si hay más productos de los mostrados:
-   - Añade al final: "Hay más modelos disponibles, ¿quieres que te los muestre?"
-   
-5. Tu tono debe ser natural y amigable, como un vendedor que ayuda a elegir.
-`;
-
-/**
- * Helper para responder con productos desde un tool call
- */
 async function answerWithProducts(messages, choice, call, products) {
   const r2 = await openai.chat.completions.create({
     model: OPENAI_MODEL,
@@ -60,16 +49,25 @@ async function answerWithProducts(messages, choice, call, products) {
   return r2.choices?.[0]?.message?.content?.trim() || null;
 }
 
-/**
- * userText: mensaje del usuario
- * ctx: { summary?: string, turns?: Array, profileFacts?: object }
- */
 export async function aiReplyStrict(userText, ctx) {
   if (!openai) return null;
 
   const messages = [{ role: "system", content: SYSTEM }];
 
-  // Resumen persistente si existe
+  if (SLOTS_SCHEMA) {
+    messages.push({
+      role: "system",
+      content: `POLÍTICA DE SLOTS (JSON). Usa estos cascarones/slots por categoría para decidir si haces NBQ o consultas DB:\n${JSON.stringify(SLOTS_SCHEMA)}`
+    });
+  }
+
+  if (ctx?.last_frame) {
+    messages.push({
+      role: "system",
+      content: `Estado previo del usuario (last_frame): ${JSON.stringify(ctx.last_frame)}`
+    });
+  }
+
   if (ctx?.summary) {
     messages.push({
       role: "system",
@@ -94,10 +92,8 @@ export async function aiReplyStrict(userText, ctx) {
     if (a) messages.push({ role: "assistant", content: a });
   }
 
-  // Mensaje actual
   messages.push({ role: "user", content: String(userText || "").slice(0, 800) });
 
-  // Definición de tools
   const tools = [
     {
       type: "function",
@@ -108,7 +104,7 @@ export async function aiReplyStrict(userText, ctx) {
           type: "object",
           properties: {
             query: { type: "string", description: "Palabras clave (ej: 'patines rojos')" },
-            size: { type: "string", description: "Talla solicitada (ej: '6', '7', '10')" }
+            size:  { type: "string", description: "Talla solicitada (ej: '6', '7', '10')" }
           }
         }
       }
@@ -124,7 +120,6 @@ export async function aiReplyStrict(userText, ctx) {
   ];
 
   try {
-    // Primer paso: IA analiza y decide si necesita llamar a un tool
     const r = await openai.chat.completions.create({
       model: OPENAI_MODEL,
       messages,
@@ -134,16 +129,21 @@ export async function aiReplyStrict(userText, ctx) {
 
     const choice = r.choices?.[0]?.message;
 
-    // 👉 Si la IA pidió usar una función
     if (choice?.tool_calls?.[0]) {
       const call = choice.tool_calls[0];
 
       if (call.function.name === "searchProducts") {
         const args = JSON.parse(call.function.arguments || "{}");
 
+        let size = args.size || null;
+        if (size != null) {
+          size = String(size).replace(/[^\d]/g, "");
+          if (!size) size = null;
+        }
+
         const products = await searchProducts({
           text: args.query || "",
-          size: args.size || null
+          size
         });
 
         return await answerWithProducts(messages, choice, call, products);
@@ -155,7 +155,6 @@ export async function aiReplyStrict(userText, ctx) {
       }
     }
 
-    // 👉 Si la IA no pidió función, devolver respuesta normal
     return choice?.content?.trim() || null;
   } catch (e) {
     console.error("OpenAI error:", e?.status, e?.code || e?.message);
