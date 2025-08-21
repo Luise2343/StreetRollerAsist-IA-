@@ -1,7 +1,8 @@
+// src/routes/whatsaap.webhook.js
 import { Router } from 'express';
 import { getContext, pushTurn, clearSession } from '../services/context.js';
 import { aiReplyStrict } from '../services/ia.js';
-import crypto from 'crypto';
+// import crypto from 'crypto'; // ⟵ eliminado: no validamos firma
 import { logIncoming, logOutgoing } from '../services/message.store.js';
 import { summarizeIfInactive } from '../services/summarize.service.js';
 import { rehydrateContext } from '../services/context.rehydrate.js';
@@ -11,13 +12,16 @@ const router = Router();
 // dedupe muy simple (memoria, con recorte de tamaño)
 const seen = new Set();
 function remember(id) {
+  if (!id) return false;
+  if (seen.has(id)) return false;
   seen.add(id);
   if (seen.size > 2000) {
-    // recorta para no crecer sin límite
-    const it = seen.values(); for (let i = 0; i < 1000; i++) seen.delete(it.next().value);
+    const it = seen.values();
+    for (let i = 0; i < 1000; i++) seen.delete(it.next().value);
   }
   return true;
 }
+
 async function sendWaText(to, body) {
   const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   const res = await fetch(url, {
@@ -33,6 +37,7 @@ async function sendWaText(to, body) {
 }
 
 async function markAsRead(messageId) {
+  if (!messageId) return;
   const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
   await fetch(url, {
     method: 'POST',
@@ -55,151 +60,146 @@ router.get('/', (req, res) => {
   return res.sendStatus(403);
 });
 
-function isMetaSignatureValid(req) {
-  try {
-    const signature = req.get('X-Hub-Signature-256'); // formato: sha256=HEX
-    if (!signature || !req.rawBody) return false;
-
-    const expected = 'sha256=' + crypto
-      .createHmac('sha256', process.env.META_APP_SECRET)
-      .update(req.rawBody)
-      .digest('hex');
-
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    );
-  } catch {
-    return false;
-  }
-}
+// ⚠️ SIN validación de firma (eliminado isMetaSignatureValid)
 
 // POST: recibir mensaje y responder
 router.post('/', async (req, res) => {
-  if (!isMetaSignatureValid(req)) {
-    return res.sendStatus(403);
-  }
   try {
-    const entry = req.body?.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const messages = value?.messages;
+    // 1) Forma estándar del payload
+    const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
+    if (!entries.length) return res.sendStatus(200);
 
-    if (Array.isArray(messages)) {
-      for (const msg of messages) {
-        if (msg.type !== 'text') continue;
-        if (seen.has(msg.id)) continue;
-        remember(msg.id);
+    const change = entries[0]?.changes?.[0];
+    if (!change || change.field !== 'messages') return res.sendStatus(200);
 
-        await markAsRead(msg.id);
-        const from = msg.from;
-        const text = msg.text?.body ?? '';
+    const value = change.value || {};
 
-        // 0) si hubo inactividad, resumimos
-        try {
-          await summarizeIfInactive(from);
-        } catch (e) {
-          console.error('summarizeIfInactive error:', e.message);
-        }
-
-        // 1) RAM (turnos recientes)
-        const ctxRam = await getContext(from);
-
-        // 2) DB (resumen + facts)
-        let summary = null, profileFacts = null, dbTurns = [];
-        try {
-          const hyr = await rehydrateContext(from);
-          summary      = hyr?.summary || null;
-          profileFacts = hyr?.profileFacts || null;
-          dbTurns      = hyr?.turns || [];
-        } catch (e) {
-          console.error('rehydrateContext error:', e.message);
-        }
-
-        // 3) Construye el ctx
-        const ctx = {
-          turns: (ctxRam?.turns?.length ? ctxRam.turns : dbTurns),
-          summary,
-          profileFacts
-        };
-
-        console.log('CTX listo →', {
-          hasSummary: !!summary,
-          hasFacts: !!profileFacts,
-          turnsFrom: (ctxRam?.turns?.length ? 'ram' : 'db'),
-          turns: (ctxRam?.turns?.length ? ctxRam.turns.length : dbTurns.length)
-        });
-
-        // Guarda el entrante
-        await logIncoming({
-          waId: from,
-          providerMsgId: msg.id,
-          body: text,
-          msgType: 'text',
-          meta: { meta_type: msg.type, timestamp: msg.timestamp }
-        });
-
-        console.log('WA IN ⬇️', { from, text, type: msg.type });
-
-        if (/^(reset|reiniciar|nuevo)$/i.test(text.trim())) {
-          clearSession(from);
-          const reply = 'Conversación reiniciada ✅';
-          await sendWaText(from, reply);
-          await logOutgoing({
-            waId: from,
-            providerMsgId: null,
-            body: reply,
-            msgType: 'text',
-            meta: { reason: 'reset' }
-          });
-          continue;
-        }
-
-        // IA responde (ella decide si llama a la DB o no)
-        let replySource = 'ai';
-        let reply = await aiReplyStrict(text, ctx);
-
-        if (!reply) {
-          reply = "Lo siento, no entendí tu mensaje. ¿Quieres que te muestre productos disponibles?";
-          replySource = 'fallback';
-        }
-
-        // enviar por WhatsApp
-        const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
-        const body = {
-          messaging_product: 'whatsapp',
-          to: from,
-          text: { body: reply }
-        };
-        const r = await fetch(url, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        });
-        const data = await r.json().catch(() => ({}));
-        const outId = data?.messages?.[0]?.id || null;
-        await logOutgoing({
-          waId: from,
-          providerMsgId: outId,
-          body: reply,
-          msgType: 'text',
-          meta: { source: replySource, httpStatus: r.status }
-        });
-
-        if (!r.ok) console.error('WA OUT ❌', r.status, data);
-        else       console.log('WA OUT ✅', data);
-
-        pushTurn(from, text, reply);
-      }
+    // 2) Ignora eventos que NO son mensajes (statuses, acks, template updates, etc.)
+    if (Array.isArray(value.statuses) && value.statuses.length) {
+      return res.sendStatus(200);
     }
 
-    res.sendStatus(200); // WhatsApp requiere 200 rápido
+    // 3) Toma solo mensajes reales
+    const messages = Array.isArray(value.messages) ? value.messages : [];
+    if (!messages.length) return res.sendStatus(200);
+
+    for (const msg of messages) {
+      // SOLO texto del usuario (ignoramos botones/listas/audio/imágenes/etc.)
+      const textBody = msg?.text?.body;
+      if (msg?.type !== 'text' || !textBody) continue;
+
+      // dedupe por id
+      if (!remember(msg.id)) continue;
+
+      await markAsRead(msg.id);
+
+      const from = msg.from;
+      const text = textBody;
+
+      // 0) si hubo inactividad, resumimos (no debe romper el flujo)
+      try {
+        await summarizeIfInactive(from);
+      } catch (e) {
+        console.error('summarizeIfInactive error:', e.message);
+      }
+
+      // 1) RAM (turnos recientes)
+      const ctxRam = await getContext(from);
+
+      // 2) DB (resumen + facts)
+      let summary = null, profileFacts = null, dbTurns = [];
+      try {
+        const hyr = await rehydrateContext(from);
+        summary      = hyr?.summary || null;
+        profileFacts = hyr?.profileFacts || null;
+        dbTurns      = hyr?.turns || [];
+      } catch (e) {
+        console.error('rehydrateContext error:', e.message);
+      }
+
+      // 3) Construye el ctx
+      const ctx = {
+        turns: (ctxRam?.turns?.length ? ctxRam.turns : dbTurns),
+        summary,
+        profileFacts
+      };
+
+      console.log('CTX listo →', {
+        hasSummary: !!summary,
+        hasFacts: !!profileFacts,
+        turnsFrom: (ctxRam?.turns?.length ? 'ram' : 'db'),
+        turns: (ctxRam?.turns?.length ? ctxRam.turns.length : dbTurns.length)
+      });
+
+      // Guarda el entrante
+      await logIncoming({
+        waId: from,
+        providerMsgId: msg.id,
+        body: text,
+        msgType: 'text',
+        meta: { meta_type: msg.type, timestamp: msg.timestamp }
+      });
+
+      console.log('WA IN ⬇️', { from, text, type: msg.type });
+
+      if (/^(reset|reiniciar|nuevo)$/i.test(text.trim())) {
+        clearSession(from);
+        const reply = 'Conversación reiniciada ✅';
+        await sendWaText(from, reply);
+        await logOutgoing({
+          waId: from,
+          providerMsgId: null,
+          body: reply,
+          msgType: 'text',
+          meta: { reason: 'reset' }
+        });
+        continue;
+      }
+
+      // IA responde (ella decide si llama a la DB o no)
+      let replySource = 'ai';
+      let reply = await aiReplyStrict(text, ctx);
+
+      if (!reply) {
+        reply = "Lo siento, no entendí tu mensaje. ¿Quieres que te muestre productos disponibles?";
+        replySource = 'fallback';
+      }
+
+      // enviar por WhatsApp
+      const url = `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+      const body = {
+        messaging_product: 'whatsapp',
+        to: from,
+        text: { body: reply }
+      };
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+      const data = await r.json().catch(() => ({}));
+      const outId = data?.messages?.[0]?.id || null;
+      await logOutgoing({
+        waId: from,
+        providerMsgId: outId,
+        body: reply,
+        msgType: 'text',
+        meta: { source: replySource, httpStatus: r.status }
+      });
+
+      if (!r.ok) console.error('WA OUT ❌', r.status, data);
+      else       console.log('WA OUT ✅', data);
+
+      pushTurn(from, text, reply);
+    }
+
+    return res.sendStatus(200); // WhatsApp requiere 200 rápido
   } catch (e) {
     console.error('Webhook POST error:', e);
-    res.sendStatus(200);
+    return res.sendStatus(200);
   }
 });
 

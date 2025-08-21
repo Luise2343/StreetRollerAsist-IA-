@@ -10,6 +10,8 @@ import payments from './routes/payments.routes.js';
 import inventory from './routes/inventory.routes.js';
 import morgan from 'morgan';
 import healthRouter from './routes/health.routes.js';
+import instagramWebhook from './routes/instagram.webhook.js';
+
 
 const app = express();
 // IMPORTANTE: esto debe ir antes de otros app.use(...)
@@ -23,7 +25,8 @@ if (process.env.LOG_HTTP !== '0' && process.env.LOG_HTTP !== 'false') {
  app.use(healthRouter); // expone GET /health
 app.use(cors());
 
-
+app.use('/webhooks/instagram', instagramWebhook);
+console.log('Mounted: GET/POST /webhooks/instagram');
   
 // health
 app.get('/health', (_req, res) => res.json({ ok: true }));
