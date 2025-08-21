@@ -1,0 +1,135 @@
+{
+  "version": "1.0.0",
+  "global": {
+    "page_size": 5,
+    "stock_policy": "on_demand",
+    "pagination_phrases": ["más", "si", "sí", "claro", "ok", "dale"],
+    "response_style": {
+      "max_lines": 4,
+      "tone": "amable, claro, vendedor consultivo",
+      "list_max_items": 5,
+      "close_cta": "¿Quieres ver más o filtrar por algo?"
+    },
+    "consistency_rules": [
+      "Nunca digas 'no hay' sin consultar la DB.",
+      "No contradigas resultados previos en la misma conversación.",
+      "No menciones atributos que la DB no modela hoy."
+    ]
+  },
+  "categories": {
+    "patines": {
+      "synonyms": ["patín", "patines", "roller", "skates"],
+      "criticals_all": ["size"],
+      "criticals_any": [],
+      "db_slots_today": ["size"],
+      "optional": ["budget_min", "budget_max", "brand", "notes"],
+      "nbq_order": [
+        "¿Qué talla buscas?",
+        "¿Tienes un presupuesto límite?"
+      ],
+      "slot_types": {
+        "size": "int",
+        "budget_min": "number",
+        "budget_max": "number",
+        "brand": "string",
+        "notes": "string"
+      },
+      "normalization": {
+        "size": "digits_only"
+      }
+    },
+    "cascos": {
+      "synonyms": ["casco", "helmet", "cascos"],
+      "criticals_all": ["size_label"],
+      "criticals_any": [],
+      "db_slots_today": [],
+      "optional": ["budget_min", "budget_max", "notes"],
+      "nbq_order": [
+        "Para acertar, ¿tu talla es S, M o L?",
+        "¿Tienes un presupuesto límite?"
+      ],
+      "slot_types": {
+        "size_label": "enum:S,M,L",
+        "budget_min": "number",
+        "budget_max": "number",
+        "notes": "string"
+      },
+      "normalization": {
+        "size_label": "map_es_to_SML" 
+      }
+    },
+    "protecciones": {
+      "synonyms": ["protecciones", "rodilleras", "coderas", "muñequeras", "set"],
+      "criticals_all": ["size_label"],
+      "criticals_any": [],
+      "db_slots_today": [],
+      "optional": ["area", "pieces", "budget_min", "budget_max", "notes"],
+      "nbq_order": [
+        "¿Talla S, M o L?",
+        "¿Buscas set completo o algo específico (muñecas/rodillas)?"
+      ],
+      "slot_types": {
+        "size_label": "enum:S,M,L",
+        "area": "enum:muñeca,rodilla,set",
+        "pieces": "enum:3,6",
+        "budget_min": "number",
+        "budget_max": "number",
+        "notes": "string"
+      },
+      "normalization": {
+        "size_label": "map_es_to_SML"
+      }
+    },
+    "ruedas": {
+      "synonyms": ["ruedas", "wheel", "wheels"],
+      "criticals_all": [],
+      "criticals_any": ["diameter_mm", "hardnessA"],
+      "db_slots_today": [],
+      "optional": ["pack_size", "budget_min", "budget_max", "brand", "notes"],
+      "nbq_order": [
+        "¿De qué diámetro (mm)?",
+        "¿Qué dureza (A)?",
+        "¿Paquete de 4 u 8 ruedas?"
+      ],
+      "slot_types": {
+        "diameter_mm": "int",
+        "hardnessA": "int",
+        "pack_size": "enum:4,8",
+        "budget_min": "number",
+        "budget_max": "number",
+        "brand": "string",
+        "notes": "string"
+      },
+      "normalization": {
+        "diameter_mm": "digits_only",
+        "hardnessA": "digits_only"
+      }
+    },
+    "clases": {
+      "synonyms": ["clases", "lecciones", "curso", "coaching"],
+      "criticals_all": ["type", "day", "time_range"],
+      "criticals_any": [],
+      "db_slots_today": [],
+      "optional": ["level", "location", "duration", "instructor_pref", "notes"],
+      "nbq_order": [
+        "¿Clases privadas o grupales?",
+        "¿Qué día y horario te conviene?",
+        "¿Nivel principiante, intermedio o avanzado?"
+      ],
+      "slot_types": {
+        "type": "enum:privada,grupal",
+        "day": "weekday",
+        "time_range": "string",
+        "level": "enum:principiante,intermedio,avanzado",
+        "location": "string",
+        "duration": "minutes",
+        "instructor_pref": "string",
+        "notes": "string"
+      },
+      "normalization": {
+        "day": "map_es_to_weekday",
+        "time_range": "coarse_range"
+      }
+    }
+  }
+}
