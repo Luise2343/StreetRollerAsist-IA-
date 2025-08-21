@@ -17,10 +17,9 @@ if (OPENAI_ENABLED && process.env.OPENAI_API_KEY) {
 }
 
 export const SYSTEM = fs.readFileSync(
-  path.resolve(process.cwd(), "src/policy/prompts/prompts.txt"),
+  path.resolve(process.cwd(), "StreetRollerAsist-IA-/src/policy/prompts/prompts"),
   "utf8"
 );
-
 const SLOTS_SCHEMA_PATH = path.resolve(process.cwd(), "src/policy/slots.schema.json");
 let SLOTS_SCHEMA = null;
 try {
