@@ -9,7 +9,10 @@
       "Bash(git ls-tree *)",
       "Bash(git commit *)",
       "Bash(git push *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node migrate.mjs)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node seed-tenant.mjs)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-secret.mjs)"
     ]
   }
 }

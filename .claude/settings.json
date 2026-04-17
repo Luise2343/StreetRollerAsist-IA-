@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(railway *)"
+      "Bash(railway *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-tenant.mjs)",
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-token.mjs)"
     ]
   }
 }
