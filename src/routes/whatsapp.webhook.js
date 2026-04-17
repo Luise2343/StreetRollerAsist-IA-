@@ -42,25 +42,33 @@ router.get('/', async (req, res) => {
 router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
   try {
     const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
+    console.log('[WA] entries:', entries.length, JSON.stringify(req.body).slice(0, 300));
     if (!entries.length) return res.sendStatus(200);
 
     const change = entries[0]?.changes?.[0];
-    if (!change || change.field !== 'messages') return res.sendStatus(200);
+    if (!change || change.field !== 'messages') {
+      console.log('[WA] skip: field=', change?.field);
+      return res.sendStatus(200);
+    }
 
     const value = change.value || {};
     const metadata = value.metadata || {};
     const phoneNumberId = metadata.phone_number_id;
+    console.log('[WA] phoneNumberId:', phoneNumberId);
 
     if (Array.isArray(value.statuses) && value.statuses.length) {
+      console.log('[WA] skip: status update');
       return res.sendStatus(200);
     }
 
     const tenant = phoneNumberId ? await resolveTenantByWaPhoneNumberId(phoneNumberId) : null;
+    console.log('[WA] tenant:', tenant?.id, 'hasToken:', !!tenant?.wa_token);
     if (!tenant?.wa_token || !tenant?.wa_phone_number_id) {
       return res.sendStatus(200);
     }
 
     const messages = Array.isArray(value.messages) ? value.messages : [];
+    console.log('[WA] messages:', messages.length);
     if (!messages.length) return res.sendStatus(200);
 
     for (const msg of messages) {
