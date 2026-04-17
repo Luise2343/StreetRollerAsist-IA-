@@ -1,0 +1,48 @@
+version: '3.9'
+
+services:
+  app:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://streetroller:streetroller@postgres:5432/streetroller
+      PGSSLMODE: disable
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      API_KEY: ${API_KEY:-}
+      LOG_HTTP: 'true'
+      CTX_TURNS: '6'
+      CTX_TTL_MIN: '120'
+      SUM_INACTIVITY_MIN: '180'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src   # hot reload (use with nodemon in dev)
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: streetroller
+      POSTGRES_PASSWORD: streetroller
+      POSTGRES_DB: streetroller
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d  # auto-runs on first boot
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U streetroller -d streetroller']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

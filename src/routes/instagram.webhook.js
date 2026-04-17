@@ -1,19 +1,8 @@
 // src/routes/instagram.webhook.js
 import express from 'express';
-import crypto from 'crypto';
+import { metaSignature } from '../middleware/meta-signature.js';
 
 const router = express.Router();
-
-// --- Firma de Meta (opcional pero recomendado)
-function isMetaSignatureValid(req) {
-  const secret = process.env.META_APP_SECRET;
-  if (!secret) return true; // si no hay secret, no bloquear (parche)
-  const signature = req.get('X-Hub-Signature-256') || '';
-  const payload = req.rawBody || Buffer.from(JSON.stringify(req.body), 'utf8');
-  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  // tiempo-constante
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-}
 
 // --- GET /webhooks/instagram (verificación)
 router.get('/', (req, res) => {
@@ -26,13 +15,9 @@ router.get('/', (req, res) => {
   return res.sendStatus(403);
 });
 
-// --- POST /webhooks/instagram (recepción)
-router.post('/', async (req, res) => {
+// --- POST /webhooks/instagram (recepcion)
+router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
   try {
-    if (process.env.META_APP_SECRET && !isMetaSignatureValid(req)) {
-      return res.sendStatus(403);
-    }
-
     const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
     if (!entries.length) return res.sendStatus(200);
 

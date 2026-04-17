@@ -1,34 +1,33 @@
-import { pool } from '../config/db.js';
+import { paymentRepository } from '../repositories/payment.repository.js';
+import { sendError } from '../middleware/error-handler.js';
 
-export async function list(_req, res) {
+export async function list(req, res) {
   try {
-    const { rows } = await pool.query(`
-      SELECT id, order_id, method, amount, reference, paid_at
-      FROM payment
-      ORDER BY id DESC
-      LIMIT 100
-    `);
+    const rows = await paymentRepository.findAll(req.tenant.id);
     res.json(rows);
   } catch (e) {
-    console.error('DB ERROR (GET /payments):', e);
-    res.status(500).json({ ok:false, error: e.message });
+    sendError(res, 500, e, 'Failed to list payments');
   }
 }
 
 export async function create(req, res) {
   try {
-    const { order_id, method, amount, reference = null, paid_at = null } = req.body;
-    if (!order_id || !method || amount == null) {
-      return res.status(400).json({ ok:false, error:'order_id, method y amount son obligatorios' });
+    const { order_id, method, amount, reference, paid_at } = req.body;
+    if (!order_id || !method || amount === null || amount === undefined) {
+      return res.status(400).json({ ok: false, error: 'order_id, method and amount are required' });
     }
-    const { rows } = await pool.query(`
-      INSERT INTO payment (order_id, method, amount, reference, paid_at)
-      VALUES ($1,$2,$3,$4,$5)
-      RETURNING id, order_id, method, amount, reference, paid_at
-    `, [order_id, method, amount, reference, paid_at]);
-    res.status(201).json(rows[0]);
+    const row = await paymentRepository.create(req.tenant.id, {
+      order_id,
+      method,
+      amount,
+      reference,
+      paid_at
+    });
+    if (!row) {
+      return res.status(404).json({ ok: false, error: 'Order not found for this tenant' });
+    }
+    res.status(201).json(row);
   } catch (e) {
-    console.error('DB ERROR (POST /payments):', e);
-    res.status(500).json({ ok:false, error: e.message });
+    sendError(res, 500, e, 'Failed to create payment');
   }
 }

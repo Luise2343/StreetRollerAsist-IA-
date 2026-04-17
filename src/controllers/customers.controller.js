@@ -1,32 +1,22 @@
-import { pool } from '../config/db.js';
+import { customerRepository } from '../repositories/customer.repository.js';
+import { sendError } from '../middleware/error-handler.js';
 
-export async function list(_req, res) {
+export async function list(req, res) {
   try {
-    const { rows } = await pool.query(`
-      SELECT id, name, phone, email, created_at
-      FROM customer
-      ORDER BY id DESC
-      LIMIT 100
-    `);
+    const rows = await customerRepository.findAll(req.tenant.id);
     res.json(rows);
   } catch (e) {
-    console.error('DB ERROR (GET /customers):', e);
-    res.status(500).json({ ok:false, error: e.message });
+    sendError(res, 500, e, 'Failed to list customers');
   }
 }
 
 export async function create(req, res) {
   try {
-    const { name, phone = null, email = null } = req.body;
-    if (!name) return res.status(400).json({ ok:false, error:'name requerido' });
-    const { rows } = await pool.query(`
-      INSERT INTO customer (name, phone, email)
-      VALUES ($1,$2,$3)
-      RETURNING id, name, phone, email, created_at
-    `, [name, phone, email]);
-    res.status(201).json(rows[0]);
+    const { name, phone, email } = req.body;
+    if (!name) return res.status(400).json({ ok: false, error: 'name is required' });
+    const row = await customerRepository.create(req.tenant.id, { name, phone, email });
+    res.status(201).json(row);
   } catch (e) {
-    console.error('DB ERROR (POST /customers):', e);
-    res.status(500).json({ ok:false, error: e.message });
+    sendError(res, 500, e, 'Failed to create customer');
   }
 }

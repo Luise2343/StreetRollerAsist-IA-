@@ -2,11 +2,11 @@
 import { pool } from '../config/db.js';
 import OpenAI from 'openai';
 
- export const INACT_MIN    = Number(process.env.SUM_INACTIVITY_MIN || process.env.CTX_TTL_MIN || 180);
- export const SUM_MAX_MSGS = Number(process.env.SUM_MAX_MSGS || 120);
- export const MODEL        = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+export const INACT_MIN = Number(process.env.SUM_INACTIVITY_MIN || process.env.CTX_TTL_MIN || 180);
+export const SUM_MAX_MSGS = Number(process.env.SUM_MAX_MSGS || 120);
+export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-const openai       = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 function buildTranscript(rows) {
   return rows
@@ -14,44 +14,32 @@ function buildTranscript(rows) {
     .join('\n');
 }
 
-/* ----------------------- helpers para FACTS persistentes -------------------- */
 function sanitizeFacts(f = {}) {
   const out = {};
   if (typeof f.name === 'string' && f.name.trim()) out.name = f.name.trim();
-
-  if (Array.isArray(f.sizes)) {
-    const s = Array.from(new Set(f.sizes.map(x => String(x).trim()).filter(Boolean)));
-    if (s.length) out.sizes = s;
-  }
-  if (Array.isArray(f.interests)) {
-    const s = Array.from(new Set(f.interests.map(x => String(x).trim()).filter(Boolean)));
-    if (s.length) out.interests = s;
+  if (f.preferences && typeof f.preferences === 'object' && !Array.isArray(f.preferences)) {
+    out.preferences = { ...f.preferences };
   }
   if (typeof f.notes === 'string' && f.notes.trim()) out.notes = f.notes.trim();
-
-  return out; // sin nulls
+  return out;
 }
 
 export function mergeFacts(prev = {}, next = {}) {
   const merged = { ...prev };
   if (next.name) merged.name = next.name;
-
-  if (next.sizes) {
-    const a = Array.isArray(prev.sizes) ? prev.sizes : [];
-    merged.sizes = Array.from(new Set([...a, ...next.sizes]));
-  }
-  if (next.interests) {
-    const a = Array.isArray(prev.interests) ? prev.interests : [];
-    merged.interests = Array.from(new Set([...a, ...next.interests]));
-  }
   if (next.notes) merged.notes = next.notes;
-
+  if (next.preferences && typeof next.preferences === 'object') {
+    merged.preferences = {
+      ...(typeof merged.preferences === 'object' && merged.preferences && !Array.isArray(merged.preferences)
+        ? merged.preferences
+        : {}),
+      ...next.preferences
+    };
+  }
   return merged;
 }
-/* ---------------------------------------------------------------------------- */
 
-async function summarizeCombined(prevSummary, newTranscript) {
-  // Prompt: construir un único resumen robusto (reemplaza al anterior).
+export async function summarizeCombined(prevSummary, newTranscript) {
   const messages = [
     {
       role: 'system',
@@ -81,10 +69,10 @@ export async function extractFactsWithAI(transcript) {
   const schemaHint = `Devuelve SOLO JSON con esta forma:
 {
   "name": string | null,
-  "sizes": string[] | null,
-  "interests": string[] | null,
+  "preferences": object | null,
   "notes": string | null
-}`;
+}
+"preferences" es un objeto libre con pares clave-valor (presupuesto, categoría, talla, etc.).`;
   const r = await openai.chat.completions.create({
     model: MODEL,
     messages: [
@@ -97,13 +85,12 @@ export async function extractFactsWithAI(transcript) {
   const raw = (r.choices?.[0]?.message?.content || '').trim();
   try {
     const jsonStart = raw.indexOf('{');
-    const jsonEnd   = raw.lastIndexOf('}');
+    const jsonEnd = raw.lastIndexOf('}');
     const slice = jsonStart >= 0 && jsonEnd >= 0 ? raw.slice(jsonStart, jsonEnd + 1) : '{}';
     const parsed = JSON.parse(slice);
     return sanitizeFacts({
       name: parsed?.name ?? null,
-      sizes: parsed?.sizes ?? null,
-      interests: parsed?.interests ?? null,
+      preferences: parsed?.preferences ?? null,
       notes: parsed?.notes ?? null
     });
   } catch {
@@ -111,19 +98,10 @@ export async function extractFactsWithAI(transcript) {
   }
 }
 
-/**
- * Resumen tras inactividad:
- * - Lee resumen previo (si existe).
- * - Resume SOLO los mensajes pendientes desde el último to_message_id.
- * - Genera un NUEVO resumen acumulado (previo + nuevos) y lo UPSERTea por wa_id.
- * - Fusiona facts en wa_profile.
- * - Borra los mensajes ya resumidos.
- */
-export async function summarizeIfInactive(waId) {
-  // 1) ¿Hubo inactividad?
+export async function summarizeIfInactive(tenantId, waId) {
   const { rows: lastRows } = await pool.query(
-    `SELECT MAX(created_at) AS last_at FROM public.wa_message WHERE wa_id = $1`,
-    [waId]
+    `SELECT MAX(created_at) AS last_at FROM public.wa_message WHERE tenant_id = $1 AND wa_id = $2`,
+    [tenantId, waId]
   );
   const lastAt = lastRows?.[0]?.last_at ? new Date(lastRows[0].last_at) : null;
   if (!lastAt) return { summarized: false };
@@ -133,39 +111,36 @@ export async function summarizeIfInactive(waId) {
     return { summarized: false };
   }
 
-  // 2) Resumen previo (si lo hay) y último mensaje incluido
   const prevSummaryRow = await pool.query(
     `SELECT summary, from_message_id, to_message_id, messages_count
        FROM public.wa_summary
-      WHERE wa_id = $1`,
-    [waId]
+      WHERE tenant_id = $1 AND wa_id = $2`,
+    [tenantId, waId]
   );
   const prevSummary = prevSummaryRow.rows?.[0]?.summary || null;
-  const prevFromId  = Number(prevSummaryRow.rows?.[0]?.from_message_id || 0);
-  const prevToId    = Number(prevSummaryRow.rows?.[0]?.to_message_id   || 0);
-  const prevCount   = Number(prevSummaryRow.rows?.[0]?.messages_count  || 0);
+  const prevFromId = Number(prevSummaryRow.rows?.[0]?.from_message_id || 0);
+  const prevToId = Number(prevSummaryRow.rows?.[0]?.to_message_id || 0);
+  const prevCount = Number(prevSummaryRow.rows?.[0]?.messages_count || 0);
 
-  // 3) Mensajes pendientes desde el último to_message_id
   const { rows: msgRows } = await pool.query(
     `SELECT id, direction, body, created_at
        FROM public.wa_message
-      WHERE wa_id = $1
-        AND id > $2
-        AND created_at <= $3
+      WHERE tenant_id = $1 AND wa_id = $2
+        AND id > $3
+        AND created_at <= $4
       ORDER BY id ASC
-      LIMIT $4`,
-    [waId, prevToId, lastAt, SUM_MAX_MSGS]
+      LIMIT $5`,
+    [tenantId, waId, prevToId, lastAt, SUM_MAX_MSGS]
   );
   if (!msgRows?.length) return { summarized: false };
 
   const fromId = msgRows[0].id;
-  const toId   = msgRows[msgRows.length - 1].id;
-  const count  = msgRows.length;
+  const toId = msgRows[msgRows.length - 1].id;
+  const count = msgRows.length;
 
   const transcript = buildTranscript(msgRows);
 
-  // 4) Nuevo resumen acumulado (previo + nuevos)
-  let summaryText = '';
+  let summaryText;
   try {
     summaryText = await summarizeCombined(prevSummary, transcript);
     if (!summaryText) summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
@@ -174,33 +149,29 @@ export async function summarizeIfInactive(waId) {
     return { summarized: false, error: 'ai-summary-failed' };
   }
 
-  // 5) Extrae facts de los NUEVOS mensajes y fusiona con perfil
   let facts = {};
   try {
-    facts = await extractFactsWithAI(transcript); // ya sanitizado
+    facts = await extractFactsWithAI(transcript);
   } catch (e) {
     console.error('extractFactsWithAI error:', e.message);
-    facts = {};
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Lee y bloquea perfil anterior para fusionar
     const prev = await client.query(
-      `SELECT facts_json FROM public.wa_profile WHERE wa_id = $1 FOR UPDATE`,
-      [waId]
+      `SELECT facts_json FROM public.wa_profile WHERE tenant_id = $1 AND wa_id = $2 FOR UPDATE`,
+      [tenantId, waId]
     );
     const prevFacts = prev.rows?.[0]?.facts_json || {};
     const mergedFacts = mergeFacts(prevFacts, facts);
 
-    // UPSERT del resumen ÚNICO por wa_id
     await client.query(
       `INSERT INTO public.wa_summary
-        (wa_id, summary, facts_json, from_message_id, to_message_id, messages_count, model, created_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, now())
-       ON CONFLICT (wa_id) DO UPDATE
+        (tenant_id, wa_id, summary, facts_json, from_message_id, to_message_id, messages_count, model, created_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, now())
+       ON CONFLICT (tenant_id, wa_id) DO UPDATE
          SET summary          = EXCLUDED.summary,
              facts_json       = EXCLUDED.facts_json,
              from_message_id  = CASE
@@ -210,34 +181,32 @@ export async function summarizeIfInactive(waId) {
              to_message_id    = EXCLUDED.to_message_id,
              messages_count   = COALESCE(public.wa_summary.messages_count, 0) + EXCLUDED.messages_count,
              model            = EXCLUDED.model,
-             created_at       = now()`
-      ,
+             created_at       = now()`,
       [
+        tenantId,
         waId,
         summaryText,
-        JSON.stringify(mergedFacts || {}), // también dejamos facts del perfil aquí si quieres consultarlos rápido
-        prevFromId || fromId,              // conserva inicio de la conversación
-        toId,                              // último incluido
-        count,                             // suma en DO UPDATE
+        JSON.stringify(mergedFacts || {}),
+        prevFromId || fromId,
+        toId,
+        count,
         MODEL
       ]
     );
 
-    // UPSERT del perfil persistente
     await client.query(
-      `INSERT INTO public.wa_profile (wa_id, facts_json, updated_at)
-       VALUES ($1, $2::jsonb, now())
-       ON CONFLICT (wa_id) DO UPDATE
-         SET facts_json = $2::jsonb,   -- ya viene MERGED
+      `INSERT INTO public.wa_profile (tenant_id, wa_id, facts_json, updated_at)
+       VALUES ($1, $2, $3::jsonb, now())
+       ON CONFLICT (tenant_id, wa_id) DO UPDATE
+         SET facts_json = $3::jsonb,
              updated_at = now()`,
-      [waId, JSON.stringify(mergedFacts)]
+      [tenantId, waId, JSON.stringify(mergedFacts)]
     );
 
-    // Borra el bloque ya resumido
     await client.query(
       `DELETE FROM public.wa_message
-        WHERE wa_id = $1 AND id BETWEEN $2 AND $3`,
-      [waId, fromId, toId]
+        WHERE tenant_id = $1 AND wa_id = $2 AND id BETWEEN $3 AND $4`,
+      [tenantId, waId, fromId, toId]
     );
 
     await client.query('COMMIT');

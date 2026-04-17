@@ -1,165 +1,96 @@
-Perfecto 🙌 entonces te dejo el **README.md final** ya listo para que lo pegues en tu repo:
+# StreetRoller Agent
 
----
+Backend Node.js con un **agente de ventas por WhatsApp** (OpenAI + function calling) y una **API REST** para gestionar productos, clientes, inventario, ordenes y pagos.
 
-```markdown
-# 📦 StreetRoller Agent
+## Stack
 
-Este proyecto implementa un **agente de WhatsApp** con persistencia de contexto y resúmenes automáticos, además de una **API REST** para gestionar productos, clientes, inventario, órdenes y pagos.  
-Está construido en **Node.js (Express)** con **PostgreSQL**, e integra **OpenAI** para respuestas inteligentes y resúmenes de conversación.
+- **Node.js >= 18** (ESM modules)
+- **Express 5**
+- **PostgreSQL** (via `pg`)
+- **OpenAI SDK** (`gpt-4o-mini` por defecto)
+- Meta **WhatsApp Cloud API**
 
----
+## Inicio rapido
 
-## 🚀 Funcionalidades principales
-
-### 1. API REST (gestión de negocio)
-- **Productos (`/api/products`)**
-  - `GET /` → lista productos.
-  - `POST /` → crea producto nuevo.
-  
-- **Clientes (`/api/customers`)**
-  - `GET /` → lista clientes.
-  - `POST /` → crea cliente.
-
-- **Inventario (`/api/inventory`)**
-  - `GET /` → lista inventario (con nombre de producto).
-  - `PATCH /:productId/adjust` → ajusta stock (`delta` positivo o negativo).
-
-- **Órdenes (`/api/orders`)**
-  - `GET /` → lista órdenes con cliente y producto.
-  - `POST /` → crea nueva orden (total calculado automáticamente).
-
-- **Pagos (`/api/payments`)**
-  - `GET /` → lista pagos.
-  - `POST /` → registra pago nuevo.
-
-- **Health (`/health`)**
-  - Verifica estado de la API, DB y mensajes pendientes de resumir.
-
----
-
-### 2. Agente de WhatsApp (`/webhooks/whatsapp`)
-- **Recepción de mensajes desde WhatsApp Cloud API**.
-- **Verificación de firma con `META_APP_SECRET`**.
-- **Respuestas automáticas**:
-  - `lista` → devuelve 5 productos recientes.
-  - `precio <producto>` → busca precio.
-  - `stock <producto>` → disponibilidad.
-- **IA (OpenAI)**:
-  - Si no hay respuesta en BD, responde con el asistente.
-- **Persistencia de contexto**:
-  - Sesiones en memoria (`context.js`).
-  - Contexto rehidratado desde DB (`context.rehydrate.js`).
-- **Resúmenes automáticos**:
-  - Tras inactividad (`SUM_INACTIVITY_MIN`).
-  - Segundo sweep periódico (`second-sweep.js`).
-  - Hechos importantes se almacenan en `wa_profile`.
-
----
-
-## 📂 Estructura del proyecto
-
+```bash
+git clone <repo>
+cd streetrolleragent
+npm install
+cp .env.example .env   # editar con tus valores
+npm run dev
 ```
 
+## Variables de entorno
+
+| Variable | Requerida | Descripcion |
+|----------|-----------|-------------|
+| `DATABASE_URL` | Si | Connection string PostgreSQL |
+| `OPENAI_API_KEY` | Si | API Key de OpenAI |
+| `WHATSAPP_TOKEN` | Si | Bearer token Meta |
+| `WHATSAPP_PHONE_NUMBER_ID` | Si | Phone Number ID de Meta |
+| `WHATSAPP_VERIFY_TOKEN` | Si | Token de verificacion del webhook |
+| `META_APP_SECRET` | Recomendado | Para validar firma HMAC de Meta |
+| `PORT` | No | Puerto HTTP (default: `3000`) |
+| `OPENAI_MODEL` | No | Modelo OpenAI (default: `gpt-4o-mini`) |
+| `AI_MAX_OUTPUT_TOKENS` | No | Limite de tokens en respuestas (default: `120`) |
+| `CTX_TURNS` | No | Turnos maximos en RAM (default: `6`) |
+| `CTX_TTL_MIN` | No | TTL de sesion en minutos (default: `120`) |
+| `SUM_INACTIVITY_MIN` | No | Minutos de inactividad para resumir (default: `180`) |
+| `SUM_SECOND_SWEEP_MIN` | No | Extra para second sweep; `0` desactiva (default: `0`) |
+| `PGSSLMODE` | No | `disable` para dev local sin SSL |
+
+Ver `.env.example` para la lista completa y `PROJECT.md` para documentacion tecnica detallada.
+
+## Endpoints
+
+### API REST
+
+| Metodo | Ruta | Descripcion |
+|--------|------|-------------|
+| `GET` | `/api/products` | Lista productos |
+| `POST` | `/api/products` | Crea producto |
+| `GET` | `/api/customers` | Lista clientes |
+| `POST` | `/api/customers` | Crea cliente |
+| `GET` | `/api/inventory` | Lista inventario |
+| `PATCH` | `/api/inventory/:productId/adjust` | Ajusta stock (`{ delta }`) |
+| `GET` | `/api/orders` | Lista ordenes |
+| `POST` | `/api/orders` | Crea orden |
+| `GET` | `/api/payments` | Lista pagos |
+| `POST` | `/api/payments` | Registra pago |
+| `GET` | `/health` | Estado de la API y la DB |
+
+### Webhooks
+
+| Metodo | Ruta | Descripcion |
+|--------|------|-------------|
+| `GET/POST` | `/webhooks/whatsapp` | Webhook de WhatsApp Cloud API |
+| `GET/POST` | `/webhooks/instagram` | Webhook de Instagram (verificacion + log) |
+
+## Estructura del proyecto
+
+```
 src/
-├── config/         # configuración de DB
-├── controllers/    # lógica de negocio (CRUD)
-├── routes/         # endpoints Express
-├── services/       # IA, contexto, resúmenes
-├── index.js        # servidor principal
+├── index.js              # Entry point
+├── config/db.js          # Pool PostgreSQL
+├── controllers/          # CRUD handlers
+├── routes/               # Express routers
+├── services/             # IA, contexto, resumenes, mensajeria
+└── policy/
+    ├── prompts/prompts   # System prompt del agente
+    └── slots.schema.json # Politica de slots por categoria
+```
 
-````
+## Scripts
 
----
+```bash
+npm run dev   # Inicia con nodemon (hot reload)
+npm start     # Produccion
+```
 
-## ⚙️ Requisitos
+## Documentacion tecnica
 
-- Node.js >= 18  
-- PostgreSQL >= 14  
-- Cuenta en **Meta WhatsApp Cloud API**  
-- API Key de **OpenAI**
+Ver [`PROJECT.md`](PROJECT.md) para arquitectura detallada, esquema de BD, flujo del agente y descripcion de todos los servicios.
 
----
-
-## 🛠️ Instalación
-
-1. Clonar el repo:
-   ```bash
-   git clone <repo>
-   cd streetrolleragent
-````
-
-2. Instalar dependencias:
-
-   ```bash
-   npm install
-   ```
-
-3. Configurar variables en `.env`:
-
-   ```env
-   PORT=3000
-   DATABASE_URL=postgresql://user:pass@localhost:5432/sragent?schema=public
-
-   # WhatsApp Cloud API
-   WHATSAPP_TOKEN=...
-   WHATSAPP_PHONE_NUMBER_ID=...
-   WHATSAPP_VERIFY_TOKEN=...
-   META_APP_SECRET=...
-
-   # OpenAI
-   OPENAI_API_KEY=...
-   OPENAI_MODEL=gpt-4o-mini
-   AI_LANG=es
-
-   # Configuración de contexto y resúmenes
-   CTX_TURNS=8
-   CTX_TTL_MIN=180
-   SUM_INACTIVITY_MIN=1
-   SUM_SECOND_SWEEP_MIN=1
-   SUM_SWEEP_INTERVAL_SEC=30
-   SWEEP_MAX_WA=10
-   SWEEP_MAX_ROUNDS=5
-   ```
-
-4. Iniciar en modo desarrollo:
-
-   ```bash
-   npm run dev
-   ```
-
-5. Producción:
-
-   ```bash
-   npm start
-   ```
-
----
-
-## 📡 Endpoints principales
-
-* `GET /api/products`
-* `POST /api/customers`
-* `PATCH /api/inventory/:productId/adjust`
-* `POST /api/orders`
-* `POST /api/payments`
-* `GET /health`
-* `POST /webhooks/whatsapp`
-
----
-
-## 🧠 IA y Persistencia
-
-* Historial de mensajes → `wa_message`.
-* Resúmenes acumulados → `wa_summary`.
-* Datos persistentes del cliente → `wa_profile`.
-* Purga de mensajes ya resumidos para optimizar la DB.
-
----
-
-## 📜 Licencia
+## Licencia
 
 ISC License © 2025
-
-```
-
