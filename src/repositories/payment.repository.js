@@ -15,10 +15,10 @@ export const paymentRepository = {
   },
 
   async create(tenantId, { order_id, method, amount, reference = null, paid_at = null }) {
-    const chk = await pool.query(
-      `SELECT id FROM orders WHERE id = $1 AND tenant_id = $2`,
-      [order_id, tenantId]
-    );
+    const chk = await pool.query(`SELECT id FROM orders WHERE id = $1 AND tenant_id = $2`, [
+      order_id,
+      tenantId
+    ]);
     if (!chk.rows[0]) return null;
     const { rows } = await pool.query(
       `INSERT INTO payment (order_id, method, amount, reference, paid_at)

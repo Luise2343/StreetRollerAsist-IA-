@@ -2,6 +2,8 @@ import OpenAI from 'openai';
 import { searchProducts, listAllProducts } from './products.search.js';
 import { buildSystemPromptForTenant, buildSlotsPolicyJsonForTenant } from './prompt.builder.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
+import { waProfileRepository } from '../repositories/wa-profile.repository.js';
+import { logger } from '../config/logger.js';
 
 const OPENAI_ENABLED = (process.env.OPENAI_ENABLED ?? 'true') !== 'false';
 
@@ -86,7 +88,7 @@ async function answerWithProducts(messages, choice, call, products, maxTokens) {
   return r2.choices?.[0]?.message?.content?.trim() || null;
 }
 
-export async function aiReplyStrict(userText, ctx, tenant) {
+export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
   if (!openai || !tenant) return null;
 
   const categories = await tenantRepository.listCategories(tenant.id);
@@ -97,8 +99,10 @@ export async function aiReplyStrict(userText, ctx, tenant) {
   const model = tenant.ai_model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const maxOut = Math.max(
     1,
-    parseInt(String(tenant.ai_max_tokens ?? process.env.AI_MAX_OUTPUT_TOKENS ?? '120').trim(), 10) ||
-      120
+    parseInt(
+      String(tenant.ai_max_tokens ?? process.env.AI_MAX_OUTPUT_TOKENS ?? '120').trim(),
+      10
+    ) || 120
   );
 
   const messages = [{ role: 'system', content: SYSTEM }];
@@ -147,6 +151,53 @@ export async function aiReplyStrict(userText, ctx, tenant) {
         description: 'Listar productos activos del comercio (máx. 10)',
         parameters: { type: 'object', properties: {} }
       }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'classify_lead',
+        description:
+          'Clasifica el tipo de lead para tracking. Llamá esto después de entender la intención del cliente.',
+        parameters: {
+          type: 'object',
+          properties: {
+            classification: {
+              type: 'string',
+              enum: ['ghost', 'ignorant', 'qualified', 'negotiating', 'closed', 'lost'],
+              description:
+                'ghost=mandó predeterminado y no responde más, ignorant=no sabe qué es el producto, qualified=tiene claro lo que busca, negotiating=pidiendo precio/descuento, closed=dio datos de envío, lost=dijo que no'
+            },
+            note: {
+              type: 'string',
+              description: 'Nota opcional sobre el estado del lead'
+            }
+          },
+          required: ['classification']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'notify_owner',
+        description:
+          'Notifica al dueño cuando hay una venta lista para cerrar o un caso que requiere atención humana',
+        parameters: {
+          type: 'object',
+          properties: {
+            reason: {
+              type: 'string',
+              enum: ['ready_to_buy', 'complaint', 'technical_question', 'bulk_order', 'other'],
+              description: 'Razón de la escalada'
+            },
+            summary: {
+              type: 'string',
+              description: 'Resumen de la conversación y siguiente paso esperado'
+            }
+          },
+          required: ['reason', 'summary']
+        }
+      }
     }
   ];
 
@@ -181,11 +232,117 @@ export async function aiReplyStrict(userText, ctx, tenant) {
         const products = await listAllProducts(tenant.id);
         return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut);
       }
+
+      if (call.function.name === 'classify_lead') {
+        const args = JSON.parse(call.function.arguments || '{}');
+        const { classification, note } = args;
+
+        if (!waId) {
+          logger.warn({ action: 'classify_lead_skipped', reason: 'no_waId' });
+          return choice?.content?.trim() || null;
+        }
+
+        try {
+          const facts = {
+            lead_class: classification,
+            lead_note: note || null,
+            lead_updated_at: new Date().toISOString()
+          };
+
+          await waProfileRepository.upsertProfileFact(tenant.id, waId, facts);
+          logger.info({
+            action: 'classify_lead',
+            tenantId: tenant.id,
+            waId,
+            classification,
+            note
+          });
+
+          const toolResult = JSON.stringify({ ok: true });
+          const r2 = await openai.chat.completions.create({
+            model,
+            messages: [
+              ...messages,
+              choice,
+              {
+                role: 'tool',
+                tool_call_id: call.id,
+                content: toolResult
+              }
+            ],
+            max_tokens: maxOut
+          });
+
+          return r2.choices?.[0]?.message?.content?.trim() || null;
+        } catch (error) {
+          logger.error({
+            action: 'classify_lead_error',
+            tenantId: tenant.id,
+            error: error.message
+          });
+          return null;
+        }
+      }
+
+      if (call.function.name === 'notify_owner') {
+        const args = JSON.parse(call.function.arguments || '{}');
+        const { reason, summary } = args;
+
+        if (!waId) {
+          logger.warn({ action: 'notify_owner_skipped', reason: 'no_waId' });
+          return choice?.content?.trim() || null;
+        }
+
+        try {
+          const escalatedAt = new Date().toISOString();
+
+          const facts = {
+            escalated_at: escalatedAt,
+            escalation_reason: reason,
+            escalation_summary: summary
+          };
+
+          await waProfileRepository.upsertProfileFact(tenant.id, waId, facts);
+
+          logger.info({
+            action: 'notify_owner',
+            tenantId: tenant.id,
+            waId,
+            reason,
+            summary,
+            escalatedAt
+          });
+
+          const toolResult = JSON.stringify({ ok: true, message: 'Propietario notificado' });
+          const r2 = await openai.chat.completions.create({
+            model,
+            messages: [
+              ...messages,
+              choice,
+              {
+                role: 'tool',
+                tool_call_id: call.id,
+                content: toolResult
+              }
+            ],
+            max_tokens: maxOut
+          });
+
+          return r2.choices?.[0]?.message?.content?.trim() || null;
+        } catch (error) {
+          logger.error({
+            action: 'notify_owner_error',
+            tenantId: tenant.id,
+            error: error.message
+          });
+          return null;
+        }
+      }
     }
 
     return choice?.content?.trim() || null;
   } catch (e) {
-    console.error('OpenAI error:', e?.status, e?.code || e?.message);
+    logger.error({ action: 'openai_error', status: e?.status, code: e?.code, message: e?.message });
     return null;
   }
 }

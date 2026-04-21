@@ -49,7 +49,8 @@ async function drainPendingFor(tenantId, waId, { maxRounds = SWEEP_MAX_ROUNDS } 
       .join('\n');
 
     let summaryText = await summarizeCombined(prevSummary, transcript);
-    if (!summaryText) summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
+    if (!summaryText)
+      summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
 
     let facts = {};
     try {
@@ -84,7 +85,16 @@ async function drainPendingFor(tenantId, waId, { maxRounds = SWEEP_MAX_ROUNDS } 
                messages_count   = COALESCE(public.wa_summary.messages_count, 0) + EXCLUDED.messages_count,
                model            = EXCLUDED.model,
                created_at       = now()`,
-        [tenantId, waId, summaryText, JSON.stringify(mergedFacts), prevFromId || fromId, toId, count, MODEL]
+        [
+          tenantId,
+          waId,
+          summaryText,
+          JSON.stringify(mergedFacts),
+          prevFromId || fromId,
+          toId,
+          count,
+          MODEL
+        ]
       );
 
       await client.query(
@@ -171,5 +181,7 @@ export function startSecondSweepScheduler() {
       console.error('[second-sweep] error:', e.message);
     }
   }, SWEEP_INTERVAL_SEC * 1000);
-  console.log(`[second-sweep] activo: cada ${SWEEP_INTERVAL_SEC}s; umbral total=${INACT_MIN}+${SECOND_SWEEP_MIN} min`);
+  console.log(
+    `[second-sweep] activo: cada ${SWEEP_INTERVAL_SEC}s; umbral total=${INACT_MIN}+${SECOND_SWEEP_MIN} min`
+  );
 }

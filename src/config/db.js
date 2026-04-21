@@ -3,14 +3,14 @@ import { Pool } from 'pg';
 
 function getSslOption() {
   const mode = String(process.env.PGSSLMODE || '').toLowerCase();
-  if (['disable','false','off'].includes(mode)) return false;
+  if (['disable', 'false', 'off'].includes(mode)) return false;
   return { rejectUnauthorized: false };
 }
 
 export const pool = new Pool({
   // En Railway basta setear DATABASE_URL
   connectionString: process.env.DATABASE_URL,
-  ssl: getSslOption(),
+  ssl: getSslOption()
   // opcional si usas schema lógico:
   // options: '-c search_path=sragent,public'
 });

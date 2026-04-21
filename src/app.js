@@ -24,20 +24,26 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 
-app.use(express.json({
-  verify: (req, _res, buf) => { req.rawBody = buf; }
-}));
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    }
+  })
+);
 
 if (process.env.LOG_HTTP !== '0' && process.env.LOG_HTTP !== 'false') {
   app.use(morgan('tiny'));
 }
 
 const allowedOrigin = process.env.CORS_ORIGIN || '*';
-app.use(cors({
-  origin: allowedOrigin,
-  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: allowedOrigin,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  })
+);
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -58,8 +64,11 @@ const webhookLimiter = rateLimit({
 app.use(healthRouter);
 
 app.get('/health/db', async (_req, res) => {
-  try { res.json({ ok: true, db: await ping() }); }
-  catch { res.status(500).json({ ok: false, error: 'DB down' }); }
+  try {
+    res.json({ ok: true, db: await ping() });
+  } catch {
+    res.status(500).json({ ok: false, error: 'DB down' });
+  }
 });
 
 app.use('/webhooks/instagram', webhookLimiter, instagramWebhook);

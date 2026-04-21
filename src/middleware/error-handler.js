@@ -11,7 +11,7 @@
  */
 export function sendError(res, status, err, fallback = 'An error occurred') {
   const isProd = process.env.NODE_ENV === 'production';
-  const message = isProd ? fallback : (err instanceof Error ? err.message : String(err));
+  const message = isProd ? fallback : err instanceof Error ? err.message : String(err);
   if (err instanceof Error) console.error('[controller error]', err.message);
   return res.status(status).json({ ok: false, error: message });
 }

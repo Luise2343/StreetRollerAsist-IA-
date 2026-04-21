@@ -1,7 +1,7 @@
 // src/repositories/tenant.repository.js
 import { pool } from '../config/db.js';
 
-const rowToTenant = (r) =>
+const rowToTenant = r =>
   r
     ? {
         id: r.id,

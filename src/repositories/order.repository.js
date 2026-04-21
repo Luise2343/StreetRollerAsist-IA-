@@ -50,10 +50,10 @@ export const orderRepository = {
     try {
       await client.query('BEGIN');
 
-      const c = await client.query(
-        `SELECT id FROM customer WHERE id = $1 AND tenant_id = $2`,
-        [customer_id, tenantId]
-      );
+      const c = await client.query(`SELECT id FROM customer WHERE id = $1 AND tenant_id = $2`, [
+        customer_id,
+        tenantId
+      ]);
       if (!c.rows[0]) {
         const err = new Error('Customer not found for this tenant');
         err.status = 404;
@@ -80,7 +80,10 @@ export const orderRepository = {
           err.status = 404;
           throw err;
         }
-        const up = unit_price !== null && unit_price !== undefined ? Number(unit_price) : Number(pr.rows[0].base_price);
+        const up =
+          unit_price !== null && unit_price !== undefined
+            ? Number(unit_price)
+            : Number(pr.rows[0].base_price);
         await client.query(
           `INSERT INTO order_item (order_id, product_id, qty, unit_price)
            VALUES ($1, $2, $3, $4)`,

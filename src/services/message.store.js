@@ -1,7 +1,14 @@
 // src/services/message.store.js
 import { pool } from '../config/db.js';
 
-export async function logIncoming({ tenantId, waId, providerMsgId, body, msgType = 'text', meta = {} }) {
+export async function logIncoming({
+  tenantId,
+  waId,
+  providerMsgId,
+  body,
+  msgType = 'text',
+  meta = {}
+}) {
   try {
     await pool.query(
       `INSERT INTO public.wa_message
@@ -15,7 +22,14 @@ export async function logIncoming({ tenantId, waId, providerMsgId, body, msgType
   }
 }
 
-export async function logOutgoing({ tenantId, waId, providerMsgId, body, msgType = 'text', meta = {} }) {
+export async function logOutgoing({
+  tenantId,
+  waId,
+  providerMsgId,
+  body,
+  msgType = 'text',
+  meta = {}
+}) {
   try {
     await pool.query(
       `INSERT INTO public.wa_message

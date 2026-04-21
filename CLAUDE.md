@@ -1,3 +1,9 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
 # StreetRoller Asist IA — Guía para Claude Code
 
 ## Stack
@@ -7,6 +13,205 @@
 - **IA**: OpenAI GPT-4o-mini con tool calling (searchProducts / listAllProducts)
 - **Canal**: WhatsApp Cloud API (Meta)
 - **Deploy**: Railway (servicio `StreetRollerAsist-IA-` + servicio `Postgres`)
+- **Testing**: Vitest (70% line coverage threshold)
+- **Linting**: ESLint + Prettier
+
+## Development Setup
+
+### Prerequisites
+- Node.js >=18
+- PostgreSQL client (for migrations; `psql` not required locally)
+- Railway CLI (for database access: `npm install -g @railway/cli`)
+- OpenAI API key (development requires `OPENAI_API_KEY`)
+
+### Initial Setup
+```bash
+# Install dependencies
+npm install
+
+# Copy environment template
+cp .env.example .env
+
+# Fill required values in .env:
+# - DATABASE_URL (use public URL from Railway for local development)
+# - OPENAI_API_KEY (required for AI features)
+# - ADMIN_API_KEY (optional, for /admin routes)
+```
+
+## Running the Application
+
+### Development (with auto-reload)
+```bash
+npm run dev
+```
+Starts Express server on `http://localhost:3000` with Nodemon watching for changes.
+
+### Production
+```bash
+npm start
+```
+
+### Server endpoints
+- `GET /health` — health check
+- `GET /webhooks/whatsapp?hub.verify_token=...` — WhatsApp webhook verification
+- `POST /webhooks/whatsapp` — incoming WhatsApp messages
+- `POST /webhooks/instagram` — Instagram DM webhook (optional)
+- `GET /admin/tenants` — list tenants (requires ADMIN_API_KEY header)
+- `GET /products`, `POST /products` — product CRUD (requires API_KEY header per tenant)
+
+## Testing
+
+### Run all tests
+```bash
+npm test
+```
+
+### Watch mode (auto-rerun on changes)
+```bash
+npm run test:watch
+```
+
+### Coverage report
+```bash
+npm run test:coverage
+```
+Coverage thresholds: 70% lines/functions/statements, 60% branches. Coverage report saved to `coverage/` directory.
+
+### Test structure
+- Tests live in `src/__tests__/` alongside source code
+- Naming: `*.test.js` (e.g., `auth.middleware.test.js`)
+- Existing coverage:
+  - `meta-signature.middleware.test.js` — HMAC signature validation
+  - `auth.middleware.test.js` — API key authentication
+  - `context.test.js` — in-memory session management
+  - `whatsapp-webhook.test.js` — webhook message routing
+  - `summarize.service.test.js` — conversation summarization
+  - `error-handler.test.js` — error handling middleware
+
+When adding new features, write tests for:
+- Middleware (auth, validation, error handling)
+- Services that call OpenAI or manipulate data
+- Database repositories (mock `pg` pool if needed)
+- Complex business logic in controllers
+
+## Code Style
+
+### Lint and format
+```bash
+npm run lint              # Check for ESLint violations
+npm run lint:fix         # Auto-fix violations
+npm run format           # Format code with Prettier
+npm run format:check     # Check formatting without changes
+```
+
+Run `lint` and `format:check` in CI; use `lint:fix` and `format` locally before committing.
+
+### Code conventions
+- ESLint config extends `@eslint/js`; Prettier paired with ESLint for formatting
+- No decorators or TypeScript (plain JavaScript + JSDoc)
+- Error handling: middleware catches and logs errors; controllers return structured JSON
+- Database: use repositories (`src/repositories/*.js`) for all DB queries; never inline SQL in controllers
+
+## Debugging Tips
+
+### Common issues
+
+**Database connection fails**
+- Check `DATABASE_URL` in `.env` — use public Railway URL for local dev
+- Verify SSL mode: `PGSSLMODE=require` for Railway public endpoint
+- Connection pool logs: check `LOG_LEVEL=debug` for pool diagnostics
+
+**OpenAI API errors**
+- Verify `OPENAI_API_KEY` is valid and has quota
+- Check `OPENAI_ENABLED=true` in `.env`
+- AI model can be overridden per tenant in DB (`tenant.ai_model`), else uses `OPENAI_MODEL` env var
+- Tool call errors logged in `ia.js` — check tool definitions match OpenAI schema
+
+**WhatsApp messages not received**
+- Verify webhook URL is publicly accessible (not localhost)
+- Check `META_APP_SECRET` in DB (`tenant.meta_app_secret`) matches Meta app settings
+- Look for webhook validation failures in `meta-signature.js` — wrong secret → 403
+- Message deduplication via in-memory Set (`MAX_DEDUP_SIZE=2000`) — restart clears
+
+**Conversation context not loading**
+- `CTX_TTL_MIN` controls session lifetime; expired sessions rehydrate from DB
+- Rehydration pulls from `wa_summary` (previous conversation) + `wa_message` (recent turns)
+- "reset" / "reiniciar" / "nuevo" command clears RAM context and wa_profile facts
+
+**Second sweep not running**
+- Only active if `SUM_SECOND_SWEEP_MIN > 0` (default: 0 = disabled)
+- Check logs for `second-sweep.js` errors; sweep runs every `SUM_SWEEP_INTERVAL_SEC` seconds
+- Summarization only triggers if `SUM_INACTIVITY_MIN` minutes passed since last message
+
+### Logging
+- Log level controlled by `LOG_LEVEL` env var (default: `info`)
+- HTTP requests logged via Morgan; disable with `LOG_HTTP=false`
+- Pino logger used throughout; format with `pino-pretty` in development
+
+### Interactive debugging
+```bash
+# Start with debug logs
+LOG_LEVEL=debug npm run dev
+
+# Check database directly (via Node)
+railway service StreetRollerAsist-IA-
+railway run -- node --input-type=module -e "
+import pg from 'pg';
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const res = await pool.query('SELECT * FROM tenant;');
+console.log(res.rows);
+await pool.end();
+"
+```
+
+## Testing WhatsApp Webhooks Locally
+
+WhatsApp Cloud API requires a publicly accessible HTTPS webhook URL. For local development, use a tunneling tool:
+
+### Option 1: ngrok (recommended)
+```bash
+# Download ngrok: https://ngrok.com/download
+# In one terminal, start ngrok
+ngrok http 3000
+
+# Copy the forwarding URL (e.g., https://abc123.ngrok.io)
+# Update webhook URL in Meta App Dashboard to: https://abc123.ngrok.io/webhooks/whatsapp
+```
+
+### Option 2: Local testing with curl
+```bash
+# Simulate incoming WhatsApp message (with valid Meta signature)
+curl -X POST http://localhost:3000/webhooks/whatsapp \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature: sha1=..." \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+      "id": "...",
+      "changes": [{
+        "value": {
+          "messaging_product": "whatsapp",
+          "metadata": { "phone_number_id": "1128896616964579" },
+          "messages": [{
+            "id": "wamid.xxx",
+            "type": "text",
+            "from": "1234567890",
+            "text": { "body": "Hola" }
+          }]
+        }
+      }]
+    }]
+  }'
+```
+Note: Signature must be valid or middleware will reject (see `meta-signature.js`). For testing, temporarily allow unsigned requests or use the correct secret.
+
+### Testing search products
+Once webhook is running, test the AI's product search:
+```bash
+# Send a product search query via WhatsApp
+# The AI will call searchProducts tool internally
+# Check logs for tool invocation and database query results
+```
 
 ## Conexión a la base de datos
 
@@ -256,3 +461,85 @@ INSERT INTO product (tenant_id, sku, name, description, base_price, currency, ca
 VALUES (3, 'SKU', 'Nombre', 'Descripción', precio, 'USD', 'categoria-slug', 'Marca', '{}'::jsonb, true);
 INSERT INTO inventory (product_id, qty_on_hand) VALUES (lastval(), 0);
 ```
+
+## Adding New Features
+
+### Typical flow for a new feature
+
+1. **Write tests first** (in `src/__tests__/`)
+   - Test the happy path and edge cases
+   - For database changes, mock the `pg` pool or use fixtures
+   - For AI features, mock OpenAI responses
+
+2. **Implement the feature**
+   - Route → Controller → Service → Repository pattern
+   - Controllers handle HTTP; services handle business logic; repositories handle DB
+   - Middleware for auth, validation, error handling
+
+3. **Add database schema if needed**
+   - Create migration file in `migrations/` with clear name (e.g., `004_add_feedback_table.sql`)
+   - Test migration locally using the Node script in the CLAUDE.md instructions
+   - Include rollback logic or document manual cleanup steps
+
+4. **Update config if new env vars**
+   - Add to `.env.example` with comments
+   - Update validation in `src/config/env.js` using Zod
+   - Document in "Variables de entorno" section of CLAUDE.md
+
+5. **Test locally**
+   - Run `npm run dev` and test via curl or Postman
+   - Check logs for errors with `LOG_LEVEL=debug npm run dev`
+   - For WhatsApp features, use ngrok tunnel or curl simulation
+
+6. **Lint and format before committing**
+   - `npm run lint:fix && npm run format`
+   - Ensure tests pass: `npm test`
+
+### Common extension points
+
+**Adding a new AI tool** (for product searches or other data lookups)
+- Define tool schema in `src/services/ia.js` (add to `tools` array in system prompt)
+- Implement handler in same file (tool response goes back to OpenAI)
+- Example: `searchProducts` tool calls `products.search.js` repository function
+- Test: mock OpenAI response, verify tool handler returns correct data shape
+
+**Adding a new endpoint** (e.g., `/orders/{id}`)
+- Create route in `src/routes/orders.routes.js`
+- Add controller in `src/controllers/orders.controller.js`
+- Add repository query in `src/repositories/order.repository.js`
+- Secure with `auth.js` middleware if tenant-scoped
+- Test with curl + valid API_KEY header
+
+**Adding a new table or modifying schema**
+- Write migration SQL in `migrations/` (numbered sequentially)
+- Add repository file if querying from multiple places
+- Update table description in this CLAUDE.md for future reference
+
+**Customizing AI behavior per tenant**
+- Prompt template: set `tenant.system_prompt`, or use `DEFAULT_TEMPLATE` in `prompt.builder.js`
+- Model: override `tenant.ai_model`, else uses `OPENAI_MODEL` env var
+- Categories: add to `tenant_category` table with slugs + synonyms for categorization
+- Response style: store preferences in `tenant.response_style` JSONB field
+
+### Code patterns to follow
+
+- **Error handling**: throw descriptive errors in services; middleware (`error-handler.js`) catches and logs
+- **Logging**: use `logger` from `src/config/logger.js`; include context (tenant_id, wa_id, etc.)
+- **Database**: all queries via repositories; use parameterized queries to prevent SQL injection
+- **OpenAI calls**: wrapped in try/catch; handle rate limits, token limits, invalid requests gracefully
+- **Async flows**: use `async/await`, never mix with `.then()` chains
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Start dev server | `npm run dev` |
+| Run tests | `npm test` |
+| Watch tests | `npm run test:watch` |
+| Check linting | `npm run lint` |
+| Auto-fix linting | `npm run lint:fix` |
+| Format code | `npm run format` |
+| Check formatting | `npm run format:check` |
+| View logs in production | `railway logs --tail` |
+| Reset conversation in DB | `UPDATE wa_message SET ... WHERE wa_id = '...'` |
+| Disable second sweep | Set `SUM_SECOND_SWEEP_MIN=0` in `.env` |

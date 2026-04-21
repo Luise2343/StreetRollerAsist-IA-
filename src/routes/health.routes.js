@@ -7,7 +7,7 @@ router.get('/health', async (_req, res) => {
   const t0 = Date.now();
   let db = 'ok';
   try {
-    await pool.query('SELECT 1');  // ping DB
+    await pool.query('SELECT 1'); // ping DB
   } catch {
     db = 'down';
   }
@@ -23,7 +23,9 @@ router.get('/health', async (_req, res) => {
       [inactMin]
     );
     pending = rows?.[0]?.pending ?? 0;
-  } catch { /* noop */ }
+  } catch {
+    /* noop */
+  }
 
   res.json({
     ok: db === 'ok',

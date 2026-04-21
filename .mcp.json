@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pipeboard-meta-ads": {
+      "type": "http",
+      "url": "https://meta-ads.mcp.pipeboard.co/"
+    },
+    "composio": {
+      "type": "http",
+      "url": "https://connect.composio.dev/mcp"
+    }
+  }
+}

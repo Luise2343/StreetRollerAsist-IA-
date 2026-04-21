@@ -30,7 +30,9 @@ export function mergeFacts(prev = {}, next = {}) {
   if (next.notes) merged.notes = next.notes;
   if (next.preferences && typeof next.preferences === 'object') {
     merged.preferences = {
-      ...(typeof merged.preferences === 'object' && merged.preferences && !Array.isArray(merged.preferences)
+      ...(typeof merged.preferences === 'object' &&
+      merged.preferences &&
+      !Array.isArray(merged.preferences)
         ? merged.preferences
         : {}),
       ...next.preferences
@@ -76,7 +78,10 @@ export async function extractFactsWithAI(transcript) {
   const r = await openai.chat.completions.create({
     model: MODEL,
     messages: [
-      { role: 'system', content: 'Eres una asistente que extrae hechos clave de una conversación para CRM.' },
+      {
+        role: 'system',
+        content: 'Eres una asistente que extrae hechos clave de una conversación para CRM.'
+      },
       { role: 'user', content: schemaHint + '\n\nConversación:\n' + transcript }
     ],
     max_tokens: 220
@@ -143,7 +148,8 @@ export async function summarizeIfInactive(tenantId, waId) {
   let summaryText;
   try {
     summaryText = await summarizeCombined(prevSummary, transcript);
-    if (!summaryText) summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
+    if (!summaryText)
+      summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
   } catch (e) {
     console.error('summarizeCombined error:', e.message);
     return { summarized: false, error: 'ai-summary-failed' };

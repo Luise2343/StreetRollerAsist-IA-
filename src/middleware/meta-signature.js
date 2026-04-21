@@ -20,7 +20,9 @@ export function metaSignature(secretEnvVar) {
     const payload = req.rawBody || Buffer.from(JSON.stringify(req.body ?? {}), 'utf8');
     const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
-    console.log(`[meta-signature] sig=${signature.slice(0,20)}... expected=${expected.slice(0,20)}... rawBody=${!!req.rawBody}`);
+    console.log(
+      `[meta-signature] sig=${signature.slice(0, 20)}... expected=${expected.slice(0, 20)}... rawBody=${!!req.rawBody}`
+    );
 
     if (signature.length !== expected.length) {
       console.warn(`[meta-signature] length mismatch: ${signature.length} vs ${expected.length}`);

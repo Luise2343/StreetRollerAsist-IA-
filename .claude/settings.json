@@ -4,7 +4,21 @@
       "Bash(railway *)",
       "Bash(grep -v \"^$\")",
       "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-tenant.mjs)",
-      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-token.mjs)"
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-token.mjs)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Read(//c/Users/luise/.claude/**)",
+      "Bash(claude mcp *)",
+      "mcp__claude_ai_meta_ads__get_ad_accounts",
+      "WebSearch",
+      "mcp__composio__COMPOSIO_SEARCH_TOOLS",
+      "mcp__composio__COMPOSIO_MANAGE_CONNECTIONS",
+      "mcp__composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+      "mcp__composio__COMPOSIO_WAIT_FOR_CONNECTIONS",
+      "mcp__composio__COMPOSIO_GET_TOOL_SCHEMAS"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\luise\\.claude"
     ]
   }
 }

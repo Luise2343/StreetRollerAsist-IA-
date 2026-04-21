@@ -7,7 +7,8 @@ export const productService = {
   },
 
   async createProduct(tenantId, data) {
-    const { name, basePrice, currency, description, active, category, brand, specs, images, sku } = data;
+    const { name, basePrice, currency, description, active, category, brand, specs, images, sku } =
+      data;
     if (!name || basePrice === null || basePrice === undefined || !currency) {
       const err = new Error('name, basePrice and currency are required');
       err.status = 400;

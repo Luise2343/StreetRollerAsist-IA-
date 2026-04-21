@@ -12,7 +12,17 @@
       "Bash(git add *)",
       "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node migrate.mjs)",
       "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node seed-tenant.mjs)",
-      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-secret.mjs)"
+      "Bash(DATABASE_URL=\"postgresql://postgres:BbRgQlKWZVOEXWMUZTgzPfHKiyXWbyHW@shinkansen.proxy.rlwy.net:39330/railway\" node update-secret.mjs)",
+      "Bash(npm run *)",
+      "Bash(node --check \"c:/Users/luise/StreetRollerAsist-IA-/src/services/ia.js\")",
+      "Bash(node --check \"c:/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js\")",
+      "Bash(npm test *)",
+      "Bash(node --check \"c:/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js\")",
+      "Bash(cd c:\\\\\\\\Users\\\\\\\\luise\\\\\\\\StreetRollerAsist-IA-)",
+      "Bash(node --check src/repositories/wa-profile.repository.js)",
+      "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js)",
+      "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js)",
+      "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js /c/Users/luise/StreetRollerAsist-IA-/src/__tests__/wa-profile.repository.test.js)"
     ]
   }
 }

@@ -12,6 +12,9 @@ export const logger = pino(
     timestamp: pino.stdTimeFunctions.isoTime
   },
   isDev
-    ? pino.transport({ target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } })
+    ? pino.transport({
+        target: 'pino-pretty',
+        options: { colorize: true, translateTime: 'HH:MM:ss' }
+      })
     : undefined
 );

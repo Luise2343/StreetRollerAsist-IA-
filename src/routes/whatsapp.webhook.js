@@ -9,6 +9,8 @@ import { metaSignature } from '../middleware/meta-signature.js';
 import { sendWaText, markAsRead } from '../services/whatsapp.client.js';
 import { resolveTenantByWaPhoneNumberId } from '../middleware/tenant.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
+import { waProfileRepository } from '../repositories/wa-profile.repository.js';
+import { logger } from '../config/logger.js';
 
 const router = Router();
 
@@ -83,6 +85,23 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
       const text = textBody;
       const tenantId = tenant.id;
 
+      // Capture referral data from Meta Ads if present
+      if (msg.referral?.source_id) {
+        try {
+          await waProfileRepository.upsertProfileFact(tenantId, from, {
+            referral: {
+              ad_id: msg.referral.source_id,
+              headline: msg.referral.headline || null,
+              body: msg.referral.body || null,
+              captured_at: new Date().toISOString()
+            }
+          });
+          logger.info({ action: 'referral_captured', tenantId, from, ad_id: msg.referral.source_id });
+        } catch (e) {
+          logger.error({ action: 'referral_save_error', tenantId, from, message: e.message });
+        }
+      }
+
       try {
         await summarizeIfInactive(tenantId, from);
       } catch (e) {
@@ -135,7 +154,7 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         continue;
       }
 
-      let reply = await aiReplyStrict(text, ctx, tenant);
+      let reply = await aiReplyStrict(text, ctx, tenant, from);
       const replySource = reply ? 'ai' : 'fallback';
 
       if (!reply) {

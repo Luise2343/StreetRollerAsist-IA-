@@ -94,29 +94,37 @@ beforeAll(async () => {
 function makeWaPayload(text, from = '521234567890', msgId = 'msg-001') {
   return {
     object: 'whatsapp_business_account',
-    entry: [{
-      changes: [{
-        field: 'messages',
-        value: {
-          metadata: { phone_number_id: '123456789' },
-          messages: [{
-            id: msgId,
-            from,
-            type: 'text',
-            text: { body: text },
-            timestamp: String(Date.now())
-          }]
-        }
-      }]
-    }]
+    entry: [
+      {
+        changes: [
+          {
+            field: 'messages',
+            value: {
+              metadata: { phone_number_id: '123456789' },
+              messages: [
+                {
+                  id: msgId,
+                  from,
+                  type: 'text',
+                  text: { body: text },
+                  timestamp: String(Date.now())
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
   };
 }
 
 describe('GET /webhooks/whatsapp', () => {
   it('returns 200 and challenge for valid verify token', async () => {
-    const res = await request
-      .get('/webhooks/whatsapp')
-      .query({ 'hub.mode': 'subscribe', 'hub.verify_token': 'test-verify-token', 'hub.challenge': 'abc123' });
+    const res = await request.get('/webhooks/whatsapp').query({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': 'test-verify-token',
+      'hub.challenge': 'abc123'
+    });
     expect(res.status).toBe(200);
     expect(res.text).toBe('abc123');
   });
@@ -145,17 +153,19 @@ describe('POST /webhooks/whatsapp', () => {
   });
 
   it('returns 200 for status update events (ignores them)', async () => {
-    const res = await request
-      .post('/webhooks/whatsapp')
-      .send({
-        object: 'whatsapp_business_account',
-        entry: [{
-          changes: [{
-            field: 'messages',
-            value: { statuses: [{ id: 'msg-001', status: 'delivered' }] }
-          }]
-        }]
-      });
+    const res = await request.post('/webhooks/whatsapp').send({
+      object: 'whatsapp_business_account',
+      entry: [
+        {
+          changes: [
+            {
+              field: 'messages',
+              value: { statuses: [{ id: 'msg-001', status: 'delivered' }] }
+            }
+          ]
+        }
+      ]
+    });
     expect(res.status).toBe(200);
   });
 
