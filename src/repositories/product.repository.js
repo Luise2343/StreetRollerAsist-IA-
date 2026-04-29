@@ -18,6 +18,15 @@ export const productRepository = {
     return rows;
   },
 
+  async findBySku(tenantId, sku) {
+    const { rows } = await pool.query(
+      `SELECT id, name, description, base_price AS "basePrice", currency, active, category, brand, specs, images, sku
+       FROM product WHERE tenant_id = $1 AND sku = $2 AND active = true LIMIT 1`,
+      [tenantId, sku]
+    );
+    return rows[0] || null;
+  },
+
   async create(
     tenantId,
     {

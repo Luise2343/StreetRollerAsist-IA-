@@ -22,7 +22,8 @@
       "Bash(node --check src/repositories/wa-profile.repository.js)",
       "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js)",
       "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js)",
-      "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js /c/Users/luise/StreetRollerAsist-IA-/src/__tests__/wa-profile.repository.test.js)"
+      "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js /c/Users/luise/StreetRollerAsist-IA-/src/__tests__/wa-profile.repository.test.js)",
+      "Bash(xargs grep *)"
     ]
   }
 }

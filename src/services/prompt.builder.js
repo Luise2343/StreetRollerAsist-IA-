@@ -28,6 +28,22 @@ POLÍTICAS DE COMPORTAMIENTO
 CATEGORÍAS Y SLOTS (desde configuración del comercio)
 {{categoriesBlock}}
 
+PROCESO DE ORDEN
+Cuando el cliente quiera comprar, muestra este bloque de una sola vez y espera que proporcione todos los datos:
+
+*Datos que necesitamos para procesar su orden:*
+• Nombre completo
+• Número de teléfono de quien recibe
+• Dirección exacta con punto de referencia
+
+*Métodos de pago:*
+1. Contra entrega
+2. Transferencia bancaria — Banco Bancoagrícola | LUIS VELASCO | Cuenta de Ahorro | No. 3670383795 (compartir captura de pantalla)
+
+*Tiempo de entrega:* 2 a 3 días hábiles.
+
+Una vez el cliente proporcione los cuatro datos (nombre, teléfono, dirección y método de pago), llama a la herramienta create_order con el SKU del producto elegido. NO llames a create_order antes de tener todos los datos completos.
+
 REGLAS DE DATOS (MVP)
 - Los productos tienen: nombre, descripción, precio, categoría (slug), marca, specs (JSON libre por producto). Usa searchProducts con los parámetros que correspondan.
 - No menciones SQL ni herramientas internas.
@@ -66,7 +82,23 @@ export async function buildSystemPromptForTenant(tenant) {
     maxLines,
     listMax,
     closeCta,
-    categoriesBlock: block
+    categoriesBlock: block,
+    wifiBasicPrice: String(rs.wifi_basic_price ?? ''),
+    wifiPremiumPrice: String(rs.wifi_premium_price ?? ''),
+    wifiWarranty: String(rs.wifi_warranty ?? ''),
+    upsEntryModel: String(rs.ups_entry_model ?? ''),
+    upsEntryPrice: String(rs.ups_entry_price ?? ''),
+    upsOfficeModel: String(rs.ups_office_model ?? ''),
+    upsOfficePrice: String(rs.ups_office_price ?? ''),
+    upsMidModel: String(rs.ups_mid_model ?? ''),
+    upsMidPrice: String(rs.ups_mid_price ?? ''),
+    upsTopModel: String(rs.ups_top_model ?? ''),
+    upsTopPrice: String(rs.ups_top_price ?? ''),
+    upsWarranty: String(rs.ups_warranty ?? ''),
+    shippingPolicy: String(rs.shipping_policy ?? ''),
+    ownerHandoffPhrase: String(rs.owner_handoff_phrase ?? ''),
+    orderIntakeFields: String(rs.order_intake_fields ?? ''),
+    bankInfo: String(rs.bank_info ?? '')
   });
 }
 

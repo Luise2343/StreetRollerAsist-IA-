@@ -3,7 +3,13 @@ import { searchProducts, listAllProducts } from './products.search.js';
 import { buildSystemPromptForTenant, buildSlotsPolicyJsonForTenant } from './prompt.builder.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { waProfileRepository } from '../repositories/wa-profile.repository.js';
+import { orderRepository } from '../repositories/order.repository.js';
+import { productRepository } from '../repositories/product.repository.js';
+import { adMapRepository } from '../repositories/ad-map.repository.js';
+import { sendWaText } from './whatsapp.client.js';
 import { logger } from '../config/logger.js';
+
+const OWNER_PHONE = process.env.OWNER_PHONE || '50373130634';
 
 const OPENAI_ENABLED = (process.env.OPENAI_ENABLED ?? 'true') !== 'false';
 
@@ -133,6 +139,21 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     });
   }
 
+  const adId = ctx?.profileFacts?.referral?.ad_id ?? null;
+  if (adId) {
+    const adEntry = await adMapRepository.findByAdId(tenant.id, adId).catch(() => null);
+    if (adEntry) {
+      const priceHint = adEntry.price ? ` — $${Number(adEntry.price).toFixed(2)}` : '';
+      messages.push({
+        role: 'system',
+        content:
+          `El cliente llegó desde un anuncio de Meta: "${adEntry.name}"${priceHint}` +
+          (adEntry.description ? `. ${adEntry.description}` : '') +
+          `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.`
+      });
+    }
+  }
+
   for (const t of ctx?.turns ?? []) {
     const u = (t?.user ?? '').trim();
     const a = (t?.assistant ?? '').trim();
@@ -173,6 +194,24 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             }
           },
           required: ['classification']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'create_order',
+        description: 'Crea una orden de compra cuando el cliente ha proporcionado todos los datos requeridos (nombre, teléfono, dirección, método de pago).',
+        parameters: {
+          type: 'object',
+          properties: {
+            product_sku: { type: 'string', description: 'SKU del producto seleccionado' },
+            customer_name: { type: 'string', description: 'Nombre completo del cliente' },
+            delivery_phone: { type: 'string', description: 'Teléfono de quien recibe' },
+            delivery_address: { type: 'string', description: 'Dirección exacta con punto de referencia' },
+            payment_method: { type: 'string', enum: ['contra_entrega', 'transferencia'], description: 'Método de pago elegido' }
+          },
+          required: ['product_sku', 'customer_name', 'delivery_phone', 'delivery_address', 'payment_method']
         }
       }
     },
@@ -284,6 +323,66 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
         }
       }
 
+      if (call.function.name === 'create_order') {
+        const args = JSON.parse(call.function.arguments || '{}');
+        const { product_sku, customer_name, delivery_phone, delivery_address, payment_method } = args;
+
+        if (!waId) {
+          logger.warn({ action: 'create_order_skipped', reason: 'no_waId' });
+          return choice?.content?.trim() || null;
+        }
+
+        try {
+          const product = await productRepository.findBySku(tenant.id, product_sku);
+          if (!product) {
+            const toolResult = JSON.stringify({ error: 'Producto no encontrado' });
+            const r2 = await openai.chat.completions.create({
+              model,
+              messages: [...messages, choice, { role: 'tool', tool_call_id: call.id, content: toolResult }],
+              max_tokens: maxOut
+            });
+            return r2.choices?.[0]?.message?.content?.trim() || null;
+          }
+
+          const adId = ctx.profileFacts?.referral?.ad_id ?? null;
+          const order = await orderRepository.createFromWA(tenant.id, {
+            waId,
+            productId: product.id,
+            unitPrice: product.basePrice,
+            deliveryName: customer_name,
+            deliveryPhone: delivery_phone,
+            deliveryAddress: delivery_address,
+            paymentMethod: payment_method,
+            adId
+          });
+
+          const payLabel = payment_method === 'transferencia' ? 'Transferencia bancaria' : 'Contra entrega';
+          const notifMsg =
+            `🛒 *Nueva orden #${order.id}*\n` +
+            `Producto: ${product.name}\n` +
+            `Precio: $${Number(product.basePrice).toFixed(2)}\n` +
+            `Cliente: ${customer_name}\n` +
+            `Tel: ${delivery_phone}\n` +
+            `Dirección: ${delivery_address}\n` +
+            `Pago: ${payLabel}` +
+            (adId ? `\nAnuncio: ${adId}` : '');
+          await sendWaText(tenant, OWNER_PHONE, notifMsg);
+
+          logger.info({ action: 'create_order', tenantId: tenant.id, waId, orderId: order.id, product_sku, payment_method });
+
+          const toolResult = JSON.stringify({ order_id: order.id, total: order.total, status: 'created' });
+          const r2 = await openai.chat.completions.create({
+            model,
+            messages: [...messages, choice, { role: 'tool', tool_call_id: call.id, content: toolResult }],
+            max_tokens: maxOut
+          });
+          return r2.choices?.[0]?.message?.content?.trim() || null;
+        } catch (error) {
+          logger.error({ action: 'create_order_error', tenantId: tenant.id, error: error.message });
+          return null;
+        }
+      }
+
       if (call.function.name === 'notify_owner') {
         const args = JSON.parse(call.function.arguments || '{}');
         const { reason, summary } = args;
@@ -312,6 +411,19 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             summary,
             escalatedAt
           });
+
+          const reasonLabels = {
+            ready_to_buy: '🛒 Listo para comprar',
+            complaint: '⚠️ Reclamo',
+            bulk_order: '📦 Orden por volumen',
+            technical_question: '🔧 Consulta técnica',
+            other: 'ℹ️ Otro'
+          };
+          const notifMsg =
+            `${reasonLabels[reason] || reason}\n` +
+            `Cliente: wa.me/${waId}\n\n` +
+            `${summary}`;
+          await sendWaText(tenant, OWNER_PHONE, notifMsg);
 
           const toolResult = JSON.stringify({ ok: true, message: 'Propietario notificado' });
           const r2 = await openai.chat.completions.create({

@@ -107,5 +107,34 @@ export const orderRepository = {
     } finally {
       client.release();
     }
+  },
+
+  async createFromWA(tenantId, { waId, productId, unitPrice, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId = null }) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: orderRows } = await client.query(
+        `INSERT INTO orders (tenant_id, wa_id, delivery_name, delivery_phone, delivery_address, payment_method, ad_id, total, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'new')
+         RETURNING id`,
+        [tenantId, waId, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId]
+      );
+      const orderId = orderRows[0].id;
+      await client.query(
+        `INSERT INTO order_item (order_id, product_id, qty, unit_price) VALUES ($1, $2, 1, $3)`,
+        [orderId, productId, unitPrice]
+      );
+      const { rows: finalRows } = await client.query(
+        `UPDATE orders SET total = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+        [orderId, Number(unitPrice)]
+      );
+      await client.query('COMMIT');
+      return finalRows[0];
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 };
