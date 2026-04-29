@@ -39,7 +39,7 @@ export async function rehydrateContext(tenantId, waId) {
   const lastTo = Number(s.rows?.[0]?.to_message_id || 0);
 
   const m = await pool.query(
-    `SELECT direction, body
+    `SELECT direction, body, meta
        FROM public.wa_message
       WHERE tenant_id = $1 AND wa_id = $2 AND id > $3
       ORDER BY id ASC
@@ -47,5 +47,10 @@ export async function rehydrateContext(tenantId, waId) {
     [tenantId, waId, lastTo, CTX_TURNS * 2]
   );
 
-  return { profileFacts, summary, turns: toTurns(m.rows || []) };
+  const rows = m.rows || [];
+  const hadHumanIntervention = rows.some(
+    (r) => r.direction === 'out' && r.meta?.source === 'human_admin'
+  );
+
+  return { profileFacts, summary, turns: toTurns(rows), hadHumanIntervention };
 }

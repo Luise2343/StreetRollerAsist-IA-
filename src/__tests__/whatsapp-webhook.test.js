@@ -3,6 +3,10 @@
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 
+vi.mock('../services/message.debounce.js', () => ({
+  debounceMessage: vi.fn((_tenantId, _waId, text) => Promise.resolve(text))
+}));
+
 vi.mock('../config/db.js', () => ({
   pool: {
     query: vi.fn().mockResolvedValue({ rows: [] }),

@@ -121,6 +121,12 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         summary = hyr?.summary || null;
         profileFacts = hyr?.profileFacts || null;
         dbTurns = hyr?.turns || [];
+        if (hyr?.hadHumanIntervention) {
+          profileFacts = {
+            ...(profileFacts || {}),
+            _human_note: 'Un agente humano intervino recientemente en esta conversación. Retoma el hilo desde el último mensaje del cliente y continúa el flujo de venta normalmente.'
+          };
+        }
       } catch (e) {
         console.error('rehydrateContext error:', e.message);
       }
