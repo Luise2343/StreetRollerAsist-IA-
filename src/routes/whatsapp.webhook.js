@@ -1,7 +1,7 @@
 // src/routes/whatsapp.webhook.js
 import { Router } from 'express';
 import { getContext, pushTurn, clearSession } from '../services/context.js';
-import { aiReplyStrict } from '../services/ia.js';
+import { aiReplyWithRetry } from '../services/ia.js';
 import { logIncoming, logOutgoing } from '../services/message.store.js';
 import { summarizeIfInactive } from '../services/summarize.service.js';
 import { rehydrateContext } from '../services/context.rehydrate.js';
@@ -154,11 +154,17 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         continue;
       }
 
-      let reply = await aiReplyStrict(text, ctx, tenant, from);
-      const replySource = reply ? 'ai' : 'fallback';
+      const { reply: aiReply, failed } = await aiReplyWithRetry(text, ctx, tenant, from);
+      const replySource = aiReply ? 'ai' : 'fallback';
+      let reply = aiReply;
 
-      if (!reply) {
-        reply = 'Lo siento, no entendi tu mensaje. Quieres que te muestre productos disponibles?';
+      if (failed) {
+        const ownerPhone = process.env.OWNER_PHONE || '50373130634';
+        const ownerTenant = tenant;
+        await sendWaText(ownerTenant, ownerPhone,
+          `⚠️ El agente falló tras reintentos.\nCliente: +${from}\nÚltimo mensaje: "${text}"\nRevisa y responde manualmente.`
+        ).catch(() => {});
+        reply = 'Disculpa, estoy teniendo un problema técnico en este momento. Un agente te contactará pronto. 🙏';
       }
 
       const outId = await sendWaText(tenant, from, reply);

@@ -458,3 +458,16 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     return null;
   }
 }
+
+// Retries con backoff lineal: 30s, 60s, 90s... hasta ~18 min total (9 intentos)
+export async function aiReplyWithRetry(text, ctx, tenant, from, { maxRetries = 9, delayMs = 30_000 } = {}) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const reply = await aiReplyStrict(text, ctx, tenant, from);
+    if (reply !== null) return { reply, failed: false };
+    if (attempt < maxRetries) {
+      logger.warn({ action: 'openai_retry', attempt, tenantId: tenant.id, from });
+      await new Promise(r => setTimeout(r, delayMs * attempt));
+    }
+  }
+  return { reply: null, failed: true };
+}
