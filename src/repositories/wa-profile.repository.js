@@ -33,5 +33,23 @@ export const waProfileRepository = {
       [tenantId, waId]
     );
     return rows[0]?.facts_json || null;
+  },
+
+  async setTakeover(tenantId, waId, value) {
+    await pool.query(
+      `INSERT INTO wa_profile (tenant_id, wa_id, facts_json, human_takeover)
+       VALUES ($1, $2, '{}'::jsonb, $3)
+       ON CONFLICT (tenant_id, wa_id)
+       DO UPDATE SET human_takeover = $3, updated_at = NOW()`,
+      [tenantId, waId, value]
+    );
+  },
+
+  async isTakeover(tenantId, waId) {
+    const { rows } = await pool.query(
+      `SELECT human_takeover FROM wa_profile WHERE tenant_id = $1 AND wa_id = $2`,
+      [tenantId, waId]
+    );
+    return rows[0]?.human_takeover ?? false;
   }
 };

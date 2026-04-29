@@ -154,6 +154,12 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         continue;
       }
 
+      const inTakeover = await waProfileRepository.isTakeover(tenantId, from);
+      if (inTakeover) {
+        logger.info({ action: 'takeover_skip', tenantId, from });
+        continue;
+      }
+
       const { reply: aiReply, failed } = await aiReplyWithRetry(text, ctx, tenant, from);
       const replySource = aiReply ? 'ai' : 'fallback';
       let reply = aiReply;
