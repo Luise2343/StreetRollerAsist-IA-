@@ -10,6 +10,7 @@ import { sendWaText, markAsRead } from '../services/whatsapp.client.js';
 import { resolveTenantByWaPhoneNumberId } from '../middleware/tenant.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { waProfileRepository } from '../repositories/wa-profile.repository.js';
+import { debounceMessage } from '../services/message.debounce.js';
 import { logger } from '../config/logger.js';
 
 const router = Router();
@@ -82,8 +83,10 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
       await markAsRead(tenant, msg.id);
 
       const from = msg.from;
-      const text = textBody;
       const tenantId = tenant.id;
+
+      const text = await debounceMessage(tenantId, from, textBody);
+      if (text === null) continue; // absorbed into a batch already being processed
 
       // Capture referral data from Meta Ads if present
       if (msg.referral?.source_id) {
