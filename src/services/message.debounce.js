@@ -1,7 +1,7 @@
 // Debounce incoming messages per (tenantId, waId).
 // Accumulates texts for DEBOUNCE_MS and resolves with all of them joined.
 
-const DEBOUNCE_MS = parseInt(process.env.DEBOUNCE_MS || '4000', 10);
+const DEBOUNCE_MS = parseInt(process.env.DEBOUNCE_MS || '10000', 10);
 
 // key: `${tenantId}:${waId}` → { timer, texts, resolve }
 const pending = new Map();
