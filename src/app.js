@@ -63,6 +63,42 @@ const webhookLimiter = rateLimit({
 
 app.use(healthRouter);
 
+app.get('/privacy', (_req, res) => {
+  res.type('html').send(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Política de Privacidad — VoltiPod</title><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#333}h1{color:#1a1a1a}</style></head><body>
+<h1>Política de Privacidad</h1>
+<p><strong>VoltiPod</strong> utiliza un agente de WhatsApp para atender consultas de clientes sobre productos y servicios.</p>
+<h2>Datos que recopilamos</h2>
+<ul><li>Número de teléfono de WhatsApp</li><li>Mensajes enviados al agente</li><li>Nombre de perfil de WhatsApp (si está disponible)</li></ul>
+<h2>Uso de los datos</h2>
+<p>Los datos se usan exclusivamente para responder consultas y mejorar el servicio. No se comparten con terceros.</p>
+<h2>Retención</h2>
+<p>Los mensajes se conservan por un máximo de 90 días para contexto de conversación.</p>
+<h2>Contacto</h2>
+<p>Para consultas sobre privacidad: <a href="mailto:velaskkia@gmail.com">velaskkia@gmail.com</a></p>
+</body></html>`);
+});
+
+app.get('/delete-data', (_req, res) => {
+  res.type('html').send(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Eliminación de datos — VoltiPod</title><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#333}h1{color:#1a1a1a}</style></head><body>
+<h1>Solicitud de eliminación de datos</h1>
+<p>Para solicitar la eliminación de tus datos del sistema de VoltiPod, envía un correo a <a href="mailto:velaskkia@gmail.com">velaskkia@gmail.com</a> con el asunto <strong>"Eliminar mis datos"</strong> e indica tu número de WhatsApp.</p>
+<p>Procesaremos tu solicitud en un plazo máximo de 30 días.</p>
+</body></html>`);
+});
+
+app.get('/terms', (_req, res) => {
+  res.type('html').send(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Condiciones del Servicio — VoltiPod</title><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;padding:0 20px;color:#333}h1{color:#1a1a1a}</style></head><body>
+<h1>Condiciones del Servicio</h1>
+<p>Al interactuar con el agente de WhatsApp de <strong>VoltiPod</strong>, aceptas las siguientes condiciones:</p>
+<h2>Uso del servicio</h2>
+<ul><li>El agente está disponible para consultas sobre productos, precios y disponibilidad.</li><li>Las respuestas son orientativas; los precios y stock pueden variar.</li><li>VoltiPod se reserva el derecho de modificar o discontinuar el servicio en cualquier momento.</li></ul>
+<h2>Responsabilidad</h2>
+<p>VoltiPod no se responsabiliza por decisiones tomadas con base exclusiva en las respuestas del agente. Para compras formales, comunícate directamente con nuestro equipo.</p>
+<h2>Contacto</h2>
+<p><a href="mailto:velaskkia@gmail.com">velaskkia@gmail.com</a></p>
+</body></html>`);
+});
+
 app.get('/health/db', async (_req, res) => {
   try {
     res.json({ ok: true, db: await ping() });
