@@ -149,7 +149,11 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
         content:
           `El cliente llegó desde un anuncio de Meta: "${adEntry.name}"${priceHint}` +
           (adEntry.description ? `. ${adEntry.description}` : '') +
-          `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.`
+          `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.` +
+          ` IMPORTANTE — marco del anuncio: mantén toda la conversación centrada en ese producto y su categoría.` +
+          ` Si el cliente pregunta algo ambiguo (ej: "batería", "precio", "capacidad"), interpreta siempre en el contexto de ese producto.` +
+          ` Solo cambia de producto si el cliente lo pide de forma explícita (ej: "quiero ver otros modelos", "¿tienen algo más grande?").` +
+          ` Si el cliente desvía la conversación a temas ajenos a la venta (clima, noticias, temas personales, etc.), responde brevemente y redirige con una pregunta corta sobre el producto del anuncio.`
       });
     }
   }
