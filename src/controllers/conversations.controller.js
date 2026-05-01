@@ -106,6 +106,86 @@ export async function releaseTakeover(req, res) {
   res.json({ ok: true });
 }
 
+export async function getMetrics(req, res) {
+  const tid = tenantId(req);
+  const range = req.query.range || '7D';
+  const days = range === '1D' ? 1 : range === '7D' ? 7 : range === '30D' ? 30 : 90;
+
+  const [msgsByDay, convsByDay, totals, aiRate, avgResponse] = await Promise.all([
+    // Messages per day
+    pool.query(
+      `SELECT TO_CHAR(DATE(created_at AT TIME ZONE 'UTC'), 'MM-DD') AS label,
+              COUNT(*)::int AS v
+       FROM wa_message
+       WHERE tenant_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval
+       GROUP BY DATE(created_at AT TIME ZONE 'UTC')
+       ORDER BY DATE(created_at AT TIME ZONE 'UTC')`,
+      [tid, days]
+    ),
+    // New conversations per day (first message date of each wa_id)
+    pool.query(
+      `SELECT TO_CHAR(DATE(first_msg AT TIME ZONE 'UTC'), 'MM-DD') AS label,
+              COUNT(*)::int AS v
+       FROM (
+         SELECT wa_id, MIN(created_at) AS first_msg
+         FROM wa_message WHERE tenant_id = $1
+         GROUP BY wa_id
+       ) sub
+       WHERE first_msg >= NOW() - ($2 || ' days')::interval
+       GROUP BY DATE(first_msg AT TIME ZONE 'UTC')
+       ORDER BY DATE(first_msg AT TIME ZONE 'UTC')`,
+      [tid, days]
+    ),
+    // Total messages + total conversations in range
+    pool.query(
+      `SELECT COUNT(*) AS total_msgs,
+              COUNT(DISTINCT wa_id) AS total_convs
+       FROM wa_message
+       WHERE tenant_id = $1 AND created_at >= NOW() - ($2 || ' days')::interval`,
+      [tid, days]
+    ),
+    // AI rate: % of profiles NOT in human_takeover
+    pool.query(
+      `SELECT ROUND(
+         COUNT(*) FILTER (WHERE NOT human_takeover) * 100.0 / NULLIF(COUNT(*), 0)
+       )::int AS ai_rate
+       FROM wa_profile WHERE tenant_id = $1`,
+      [tid]
+    ),
+    // Avg response time in minutes (first bot reply after each incoming message)
+    pool.query(
+      `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (out_time - in_time)) / 60)::numeric, 1) AS avg_mins
+       FROM (
+         SELECT m1.created_at AS in_time,
+                MIN(m2.created_at) AS out_time
+         FROM wa_message m1
+         JOIN wa_message m2
+           ON m2.tenant_id = m1.tenant_id
+          AND m2.wa_id = m1.wa_id
+          AND m2.direction = 'out'
+          AND m2.created_at > m1.created_at
+         WHERE m1.tenant_id = $1
+           AND m1.direction = 'in'
+           AND m1.created_at >= NOW() - ($2 || ' days')::interval
+         GROUP BY m1.id, m1.created_at
+       ) t`,
+      [tid, days]
+    )
+  ]);
+
+  res.json({
+    ok: true,
+    data: {
+      totalMsgs: parseInt(totals.rows[0]?.total_msgs || '0', 10),
+      totalConvs: parseInt(totals.rows[0]?.total_convs || '0', 10),
+      aiRate: aiRate.rows[0]?.ai_rate ?? 0,
+      avgResponseMins: parseFloat(avgResponse.rows[0]?.avg_mins || '0'),
+      msgPerDay: msgsByDay.rows,
+      convPerDay: convsByDay.rows,
+    }
+  });
+}
+
 export async function sendMessage(req, res) {
   const tid = tenantId(req);
   const { waId } = req.params;
