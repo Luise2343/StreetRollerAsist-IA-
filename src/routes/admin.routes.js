@@ -13,7 +13,9 @@ router.post('/tenants/:id/categories', ctrl.createCategory);
 router.patch('/tenants/:id/categories/:slug', ctrl.updateCategory);
 
 router.get('/metrics', conv.getMetrics);
+router.get('/events', conv.sseGlobalStream);
 router.get('/conversations', conv.listConversations);
+router.get('/conversations/:waId/events', conv.sseConvStream);
 router.get('/conversations/:waId/messages', conv.getMessages);
 router.get('/conversations/:waId/profile', conv.getProfile);
 router.get('/conversations/:waId/summary', conv.getSummary);

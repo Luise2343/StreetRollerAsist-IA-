@@ -12,6 +12,7 @@ import { tenantRepository } from '../repositories/tenant.repository.js';
 import { waProfileRepository } from '../repositories/wa-profile.repository.js';
 import { debounceMessage } from '../services/message.debounce.js';
 import { logger } from '../config/logger.js';
+import { emit as sseEmit } from '../services/sse.service.js';
 
 const router = Router();
 
@@ -145,6 +146,7 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         msgType: 'text',
         meta: { meta_type: msg.type, timestamp: msg.timestamp }
       });
+      sseEmit(from, { type: 'message', direction: 'in' });
 
       console.log('WA IN', { tenantId, from, text: text.slice(0, 80) });
 
@@ -192,6 +194,7 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         msgType: 'text',
         meta: { source: replySource }
       });
+      sseEmit(from, { type: 'message', direction: 'out' });
 
       pushTurn(tenantId, from, text, reply);
     }

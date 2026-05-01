@@ -4,6 +4,7 @@ import { sendWaText } from '../services/whatsapp.client.js';
 import { logOutgoing } from '../services/message.store.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { logger } from '../config/logger.js';
+import { subscribeConv, unsubscribeConv, subscribeGlobal, unsubscribeGlobal } from '../services/sse.service.js';
 
 function tenantId(req) {
   return parseInt(req.query.tenantId || '3', 10);
@@ -184,6 +185,31 @@ export async function getMetrics(req, res) {
       convPerDay: convsByDay.rows,
     }
   });
+}
+
+export function sseConvStream(req, res) {
+  const { waId } = req.params;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  res.write(': connected\n\n');
+
+  subscribeConv(waId, res);
+  const hb = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 25000);
+  req.on('close', () => { clearInterval(hb); unsubscribeConv(waId, res); });
+}
+
+export function sseGlobalStream(req, res) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  res.write(': connected\n\n');
+
+  subscribeGlobal(res);
+  const hb = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 25000);
+  req.on('close', () => { clearInterval(hb); unsubscribeGlobal(res); });
 }
 
 export async function sendMessage(req, res) {
