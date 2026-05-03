@@ -209,12 +209,6 @@ export async function summarizeIfInactive(tenantId, waId) {
       [tenantId, waId, JSON.stringify(mergedFacts)]
     );
 
-    await client.query(
-      `DELETE FROM public.wa_message
-        WHERE tenant_id = $1 AND wa_id = $2 AND id BETWEEN $3 AND $4`,
-      [tenantId, waId, fromId, toId]
-    );
-
     await client.query('COMMIT');
     return { summarized: true, fromId, toId, count };
   } catch (e) {
