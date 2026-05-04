@@ -99,7 +99,6 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
 
   const categories = await tenantRepository.listCategories(tenant.id);
   const specKeys = collectSpecKeys(categories);
-  const SYSTEM = await buildSystemPromptForTenant(tenant);
   const SLOTS_SCHEMA = await buildSlotsPolicyJsonForTenant(tenant.id);
 
   const model = tenant.ai_model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -110,6 +109,13 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       10
     ) || 120
   );
+
+  // Resolve ad-specific system prompt (overrides tenant default when present)
+  const adId = ctx?.profileFacts?.referral?.ad_id ?? null;
+  const adEntry = adId ? await adMapRepository.findByAdId(tenant.id, adId).catch(() => null) : null;
+  const SYSTEM = adEntry?.system_prompt
+    ? adEntry.system_prompt
+    : await buildSystemPromptForTenant(tenant);
 
   const messages = [{ role: 'system', content: SYSTEM }];
 
@@ -139,23 +145,17 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     });
   }
 
-  const adId = ctx?.profileFacts?.referral?.ad_id ?? null;
-  if (adId) {
-    const adEntry = await adMapRepository.findByAdId(tenant.id, adId).catch(() => null);
-    if (adEntry) {
-      const priceHint = adEntry.price ? ` — $${Number(adEntry.price).toFixed(2)}` : '';
-      messages.push({
-        role: 'system',
-        content:
-          `El cliente llegó desde un anuncio de Meta: "${adEntry.name}"${priceHint}` +
-          (adEntry.description ? `. ${adEntry.description}` : '') +
-          `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.` +
-          ` IMPORTANTE — marco del anuncio: mantén toda la conversación centrada en ese producto y su categoría.` +
-          ` Si el cliente pregunta algo ambiguo (ej: "batería", "precio", "capacidad"), interpreta siempre en el contexto de ese producto.` +
-          ` Solo cambia de producto si el cliente lo pide de forma explícita (ej: "quiero ver otros modelos", "¿tienen algo más grande?").` +
-          ` Si el cliente desvía la conversación a temas ajenos a la venta (clima, noticias, temas personales, etc.), responde brevemente y redirige con una pregunta corta sobre el producto del anuncio.`
-      });
-    }
+  // Ad-specific prompt already applied above; add fallback hint only when no system_prompt
+  if (adEntry && !adEntry.system_prompt) {
+    const priceHint = adEntry.price ? ` — $${Number(adEntry.price).toFixed(2)}` : '';
+    messages.push({
+      role: 'system',
+      content:
+        `El cliente llegó desde un anuncio de Meta: "${adEntry.name}"${priceHint}` +
+        (adEntry.description ? `. ${adEntry.description}` : '') +
+        `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.` +
+        ` Mantén toda la conversación centrada en ese producto. Solo cambia si el cliente lo pide explícitamente.`
+    });
   }
 
   for (const t of ctx?.turns ?? []) {
