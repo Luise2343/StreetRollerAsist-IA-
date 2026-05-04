@@ -110,8 +110,8 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     ) || 120
   );
 
-  // Resolve ad-specific system prompt (overrides tenant default when present)
-  const adId = ctx?.profileFacts?.referral?.ad_id ?? null;
+  // Resolve ad-specific system prompt only when the current message has a referral
+  const adId = ctx?.currentAdId ?? null;
   const adEntry = adId ? await adMapRepository.findByAdId(tenant.id, adId).catch(() => null) : null;
   const SYSTEM = adEntry?.system_prompt
     ? adEntry.system_prompt

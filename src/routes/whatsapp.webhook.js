@@ -135,7 +135,8 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
       const ctx = {
         turns: ctxRam?.turns?.length ? ctxRam.turns : dbTurns,
         summary,
-        profileFacts
+        profileFacts,
+        currentAdId: msg.referral?.source_id ?? null
       };
 
       await logIncoming({
