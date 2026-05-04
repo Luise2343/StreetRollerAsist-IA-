@@ -110,8 +110,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     ) || 120
   );
 
-  // Resolve ad-specific system prompt only when the current message has a referral
-  const adId = ctx?.currentAdId ?? null;
+  // Use ad_id from current message referral, or from persistent profile if no summary yet
+  // (summary signals a new conversation — revert to standard tenant prompt)
+  const adId = ctx?.currentAdId ?? (!ctx?.summary ? ctx?.profileFacts?.referral?.ad_id : null) ?? null;
   const adEntry = adId ? await adMapRepository.findByAdId(tenant.id, adId).catch(() => null) : null;
   const SYSTEM = adEntry?.system_prompt
     ? adEntry.system_prompt
