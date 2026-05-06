@@ -5,27 +5,36 @@ import { logger } from '../config/logger.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function fetchProductsForAd(tenantId, { name, description, category }) {
-  // Busca productos por categoría si se indica, o full-text sobre nombre/descripción del anuncio
-  const searchTerms = [name, description, category].filter(Boolean).join(' ');
+async function fetchProductsByIds(tenantId, productIds) {
+  if (!productIds || productIds.length === 0) return [];
+  const placeholders = productIds.map((_, i) => `$${i + 2}`).join(', ');
   const { rows } = await pool.query(
-    `SELECT p.name, p.description, p.base_price, p.brand, p.specs, p.category
-     FROM product p
-     WHERE p.tenant_id = $1 AND p.active = true
-       AND (
-         p.category = $2
-         OR to_tsvector('spanish', coalesce(p.name,'') || ' ' || coalesce(p.description,''))
-            @@ plainto_tsquery('spanish', $3)
-       )
-     ORDER BY p.base_price ASC
-     LIMIT 8`,
-    [tenantId, category ?? '', searchTerms]
+    `SELECT name, description, base_price, brand, specs, category
+     FROM product
+     WHERE tenant_id = $1 AND id IN (${placeholders}) AND active = true
+     ORDER BY base_price ASC`,
+    [tenantId, ...productIds]
   );
   return rows;
 }
 
-async function generateAdPrompt({ tenantId, name, description, price, category }) {
-  const products = await fetchProductsForAd(tenantId, { name, description, category });
+export async function listProducts(req, res) {
+  const tenantId = Number(req.params.tenantId);
+  const category = req.query.category;
+  let query = `SELECT id, name, description, base_price, brand, specs, category, sku
+               FROM product WHERE tenant_id = $1 AND active = true`;
+  const params = [tenantId];
+  if (category) {
+    params.push(category);
+    query += ` AND category = $${params.length}`;
+  }
+  query += ' ORDER BY category, name';
+  const { rows } = await pool.query(query, params);
+  res.json({ ok: true, data: rows });
+}
+
+async function generateAdPrompt({ tenantId, name, description, price, category, productIds }) {
+  const products = await fetchProductsByIds(tenantId, productIds);
 
   const productLines = products.length
     ? products.map(p => {
@@ -99,16 +108,19 @@ export async function listAds(req, res) {
 
 export async function createAd(req, res) {
   const tenantId = Number(req.params.tenantId);
-  const { ad_id, name, description, price, category } = req.body;
+  const { ad_id, name, description, price, category, product_ids } = req.body;
 
   if (!ad_id || !name) {
     return res.status(400).json({ ok: false, error: 'ad_id y name son requeridos' });
   }
+  if (!product_ids || product_ids.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Debes seleccionar al menos un producto' });
+  }
 
-  logger.info({ tenantId, ad_id }, 'generating ad system prompt');
-  const system_prompt = await generateAdPrompt({ tenantId, name, description, price, category });
+  logger.info({ tenantId, ad_id, product_ids }, 'generating ad system prompt');
+  const system_prompt = await generateAdPrompt({ tenantId, name, description, price, category, productIds: product_ids });
 
-  const row = await adMapRepository.create(tenantId, { ad_id, name, description, price, system_prompt });
+  const row = await adMapRepository.create(tenantId, { ad_id, name, description, price, category, system_prompt });
   res.status(201).json({ ok: true, data: row });
 }
 
@@ -123,8 +135,9 @@ export async function updateAd(req, res) {
     const current = await adMapRepository.findAll(tenantId).then(rows => rows.find(r => r.id === id));
     if (!current) return res.status(404).json({ ok: false, error: 'Anuncio no encontrado' });
     const merged = { name: current.name, description: current.description, price: current.price, ...rest };
+    const productIds = rest.product_ids ?? [];
     logger.info({ tenantId, id }, 'regenerating ad system prompt');
-    fields.system_prompt = await generateAdPrompt({ tenantId, ...merged });
+    fields.system_prompt = await generateAdPrompt({ tenantId, ...merged, productIds });
   } else if (system_prompt !== undefined) {
     fields.system_prompt = system_prompt;
   }

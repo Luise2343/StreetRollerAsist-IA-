@@ -12,6 +12,7 @@ router.get('/tenants/:id/categories', ctrl.listCategories);
 router.post('/tenants/:id/categories', ctrl.createCategory);
 router.patch('/tenants/:id/categories/:slug', ctrl.updateCategory);
 
+router.get('/tenants/:tenantId/products', ads.listProducts);
 router.get('/tenants/:tenantId/ads', ads.listAds);
 router.post('/tenants/:tenantId/ads', ads.createAd);
 router.patch('/tenants/:tenantId/ads/:adId', ads.updateAd);
