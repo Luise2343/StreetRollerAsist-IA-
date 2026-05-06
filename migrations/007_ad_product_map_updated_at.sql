@@ -1,0 +1,1 @@
+ALTER TABLE ad_product_map ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;

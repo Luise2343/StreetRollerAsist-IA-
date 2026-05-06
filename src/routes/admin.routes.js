@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import * as ctrl from '../controllers/tenant.controller.js';
 import * as conv from '../controllers/conversations.controller.js';
-
+import * as ads from '../controllers/ads.controller.js';
 
 const router = Router();
 
@@ -11,6 +11,11 @@ router.patch('/tenants/:id', ctrl.updateTenant);
 router.get('/tenants/:id/categories', ctrl.listCategories);
 router.post('/tenants/:id/categories', ctrl.createCategory);
 router.patch('/tenants/:id/categories/:slug', ctrl.updateCategory);
+
+router.get('/tenants/:tenantId/ads', ads.listAds);
+router.post('/tenants/:tenantId/ads', ads.createAd);
+router.patch('/tenants/:tenantId/ads/:adId', ads.updateAd);
+router.delete('/tenants/:tenantId/ads/:adId', ads.deleteAd);
 
 router.get('/metrics', conv.getMetrics);
 router.get('/events', conv.sseGlobalStream);
