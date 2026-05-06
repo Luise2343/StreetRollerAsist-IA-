@@ -118,11 +118,11 @@ export async function createAd(req, res) {
   }
 
   const existing = await adMapRepository.findAnyByAdId(tenantId, ad_id);
-  if (existing && existing.active !== false) {
-    return res.status(409).json({
-      ok: false,
-      error: `Ya tienes un anuncio activo con Ad ID "${ad_id}". Desactívalo primero para poder reemplazarlo.`
-    });
+  if (existing) {
+    const msg = existing.active
+      ? `Ya tienes un anuncio activo con ese Ad ID. Desactívalo primero.`
+      : `Ya existe un anuncio inactivo con ese Ad ID. Elimínalo primero.`;
+    return res.status(409).json({ ok: false, error: msg });
   }
 
   logger.info({ tenantId, ad_id, product_ids }, 'generating ad system prompt');
@@ -160,5 +160,13 @@ export async function deleteAd(req, res) {
   const id = Number(req.params.adId);
   const found = await adMapRepository.deactivate(tenantId, id);
   if (!found) return res.status(404).json({ ok: false, error: 'Anuncio no encontrado' });
+  res.json({ ok: true });
+}
+
+export async function hardDeleteAd(req, res) {
+  const tenantId = Number(req.params.tenantId);
+  const id = Number(req.params.adId);
+  const found = await adMapRepository.hardDelete(tenantId, id);
+  if (!found) return res.status(404).json({ ok: false, error: 'Anuncio no encontrado o está activo' });
   res.json({ ok: true });
 }

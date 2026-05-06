@@ -17,6 +17,7 @@ router.get('/tenants/:tenantId/ads', ads.listAds);
 router.post('/tenants/:tenantId/ads', ads.createAd);
 router.patch('/tenants/:tenantId/ads/:adId', ads.updateAd);
 router.delete('/tenants/:tenantId/ads/:adId', ads.deleteAd);
+router.delete('/tenants/:tenantId/ads/:adId/permanent', ads.hardDeleteAd);
 
 router.get('/metrics', conv.getMetrics);
 router.get('/events', conv.sseGlobalStream);

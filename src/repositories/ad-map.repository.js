@@ -35,14 +35,6 @@ export const adMapRepository = {
     const { rows } = await pool.query(
       `INSERT INTO ad_product_map (tenant_id, ad_id, name, description, price, category, system_prompt, active)
        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-       ON CONFLICT (tenant_id, ad_id) DO UPDATE
-         SET name = EXCLUDED.name,
-             description = EXCLUDED.description,
-             price = EXCLUDED.price,
-             category = EXCLUDED.category,
-             system_prompt = EXCLUDED.system_prompt,
-             active = true,
-             updated_at = NOW()
        RETURNING id, ad_id, name, description, price, category, system_prompt, active, created_at, updated_at`,
       [tenantId, ad_id, name, description ?? null, price ?? null, category ?? null, system_prompt]
     );
@@ -63,6 +55,14 @@ export const adMapRepository = {
       [tenantId, id, ...values]
     );
     return rows[0] ?? null;
+  },
+
+  async hardDelete(tenantId, id) {
+    const { rowCount } = await pool.query(
+      `DELETE FROM ad_product_map WHERE tenant_id = $1 AND id = $2 AND active = false`,
+      [tenantId, id]
+    );
+    return rowCount > 0;
   },
 
   async deactivate(tenantId, id) {
