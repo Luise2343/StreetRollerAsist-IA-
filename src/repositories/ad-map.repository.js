@@ -12,6 +12,14 @@ export const adMapRepository = {
     return rows[0] ?? null;
   },
 
+  async findAnyByAdId(tenantId, adId) {
+    const { rows } = await pool.query(
+      `SELECT id, active FROM ad_product_map WHERE tenant_id = $1 AND ad_id = $2 LIMIT 1`,
+      [tenantId, adId]
+    );
+    return rows[0] ?? null;
+  },
+
   async findAll(tenantId) {
     const { rows } = await pool.query(
       `SELECT id, ad_id, name, description, price, category, system_prompt, active, created_at, updated_at

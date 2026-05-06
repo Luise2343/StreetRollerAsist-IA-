@@ -117,6 +117,14 @@ export async function createAd(req, res) {
     return res.status(400).json({ ok: false, error: 'Debes seleccionar al menos un producto' });
   }
 
+  const existing = await adMapRepository.findAnyByAdId(tenantId, ad_id);
+  if (existing && existing.active !== false) {
+    return res.status(409).json({
+      ok: false,
+      error: `Ya tienes un anuncio activo con Ad ID "${ad_id}". Desactívalo primero para poder reemplazarlo.`
+    });
+  }
+
   logger.info({ tenantId, ad_id, product_ids }, 'generating ad system prompt');
   const system_prompt = await generateAdPrompt({ tenantId, name, description, price, category, productIds: product_ids });
 
