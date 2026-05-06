@@ -13,6 +13,7 @@ import { waProfileRepository } from '../repositories/wa-profile.repository.js';
 import { debounceMessage } from '../services/message.debounce.js';
 import { logger } from '../config/logger.js';
 import { emit as sseEmit } from '../services/sse.service.js';
+import { sendPushToTenant } from '../services/push.service.js';
 
 const router = Router();
 
@@ -132,12 +133,22 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
         console.error('rehydrateContext error:', e.message);
       }
 
+      const isNewConversation = !ctxRam?.turns?.length && !dbTurns.length && !summary;
+
       const ctx = {
         turns: ctxRam?.turns?.length ? ctxRam.turns : dbTurns,
         summary,
         profileFacts,
         currentAdId: msg.referral?.source_id ?? null
       };
+
+      if (isNewConversation) {
+        sendPushToTenant(tenantId, {
+          title: '💬 Nueva conversación',
+          body: `+${from}: ${text.slice(0, 80)}`,
+          data: { waId: from, tenantId }
+        }).catch(e => logger.warn({ action: 'push_new_conv_error', message: e.message }));
+      }
 
       await logIncoming({
         tenantId,

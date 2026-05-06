@@ -18,6 +18,7 @@ import instagramWebhook from './routes/instagram.webhook.js';
 import { requireApiKey } from './middleware/auth.js';
 import { requireAdmin } from './middleware/admin-auth.js';
 import adminRoutes from './routes/admin.routes.js';
+import pushRoutes from './routes/push.routes.js';
 
 const app = express();
 
@@ -111,6 +112,7 @@ app.use('/webhooks/instagram', webhookLimiter, instagramWebhook);
 app.use('/webhooks/whatsapp', webhookLimiter, whatsappWebhook);
 
 app.use('/admin', apiLimiter, requireAdmin, adminRoutes);
+app.use('/push', apiLimiter, pushRoutes);
 
 app.use('/api', apiLimiter, requireApiKey);
 app.use('/api/products', products);

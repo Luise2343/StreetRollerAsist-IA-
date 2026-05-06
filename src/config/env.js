@@ -49,6 +49,11 @@ const envSchema = z.object({
   SWEEP_MAX_WA: z.coerce.number().int().positive().default(10),
   SWEEP_MAX_ROUNDS: z.coerce.number().int().positive().default(5),
 
+  // Web Push (VAPID) — optional, push disabled if not set
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_EMAIL: z.string().optional(),
+
   // HTTP
   LOG_HTTP: boolish.default('true'),
   CORS_ORIGIN: z.string().default('*'),
