@@ -14,7 +14,7 @@ export const adMapRepository = {
 
   async findAll(tenantId) {
     const { rows } = await pool.query(
-      `SELECT id, ad_id, name, description, price, system_prompt, active, created_at, updated_at
+      `SELECT id, ad_id, name, description, price, category, system_prompt, active, created_at, updated_at
        FROM ad_product_map
        WHERE tenant_id = $1
        ORDER BY created_at DESC`,
@@ -23,12 +23,12 @@ export const adMapRepository = {
     return rows;
   },
 
-  async create(tenantId, { ad_id, name, description, price, system_prompt }) {
+  async create(tenantId, { ad_id, name, description, price, category, system_prompt }) {
     const { rows } = await pool.query(
-      `INSERT INTO ad_product_map (tenant_id, ad_id, name, description, price, system_prompt, active)
-       VALUES ($1, $2, $3, $4, $5, $6, true)
-       RETURNING id, ad_id, name, description, price, system_prompt, active, created_at, updated_at`,
-      [tenantId, ad_id, name, description ?? null, price ?? null, system_prompt]
+      `INSERT INTO ad_product_map (tenant_id, ad_id, name, description, price, category, system_prompt, active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+       RETURNING id, ad_id, name, description, price, category, system_prompt, active, created_at, updated_at`,
+      [tenantId, ad_id, name, description ?? null, price ?? null, category ?? null, system_prompt]
     );
     return rows[0];
   },
@@ -43,7 +43,7 @@ export const adMapRepository = {
       `UPDATE ad_product_map
        SET ${setClauses}, updated_at = NOW()
        WHERE tenant_id = $1 AND id = $2
-       RETURNING id, ad_id, name, description, price, system_prompt, active, created_at, updated_at`,
+       RETURNING id, ad_id, name, description, price, category, system_prompt, active, created_at, updated_at`,
       [tenantId, id, ...values]
     );
     return rows[0] ?? null;
