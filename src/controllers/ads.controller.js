@@ -120,15 +120,8 @@ export async function createAd(req, res) {
   logger.info({ tenantId, ad_id, product_ids }, 'generating ad system prompt');
   const system_prompt = await generateAdPrompt({ tenantId, name, description, price, category, productIds: product_ids });
 
-  try {
-    const row = await adMapRepository.create(tenantId, { ad_id, name, description, price, category, system_prompt });
-    res.status(201).json({ ok: true, data: row });
-  } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ ok: false, error: `Ya existe un anuncio con Ad ID "${ad_id}". Edítalo o usa un ID diferente.` });
-    }
-    throw err;
-  }
+  const row = await adMapRepository.create(tenantId, { ad_id, name, description, price, category, system_prompt });
+  res.status(201).json({ ok: true, data: row });
 }
 
 export async function updateAd(req, res) {
