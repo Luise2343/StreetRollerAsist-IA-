@@ -42,3 +42,8 @@ export async function logOutgoing({
     console.error('logOutgoing error', e.message);
   }
 }
+
+export async function clearHistory(tenantId, waId) {
+  await pool.query('DELETE FROM wa_message WHERE tenant_id=$1 AND wa_id=$2', [tenantId, waId]);
+  await pool.query('DELETE FROM wa_summary WHERE tenant_id=$1 AND wa_id=$2', [tenantId, waId]);
+}

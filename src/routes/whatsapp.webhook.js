@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { getContext, pushTurn, clearSession } from '../services/context.js';
 import { aiReplyWithRetry } from '../services/ia.js';
-import { logIncoming, logOutgoing } from '../services/message.store.js';
+import { logIncoming, logOutgoing, clearHistory } from '../services/message.store.js';
 import { summarizeIfInactive } from '../services/summarize.service.js';
 import { rehydrateContext } from '../services/context.rehydrate.js';
 import { metaSignature } from '../middleware/meta-signature.js';
@@ -174,6 +174,14 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
           msgType: 'text',
           meta: { reason: 'reset' }
         });
+        continue;
+      }
+
+      if (/^reset full$/i.test(text.trim())) {
+        clearSession(tenantId, from);
+        await clearHistory(tenantId, from);
+        const reply = 'Historial borrado. El próximo mensaje se tratará como conversación nueva.';
+        await sendWaText(tenant, from, reply);
         continue;
       }
 
