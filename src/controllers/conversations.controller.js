@@ -1,6 +1,6 @@
 import { pool } from '../config/db.js';
 import { waProfileRepository } from '../repositories/wa-profile.repository.js';
-import { sendWaText } from '../services/whatsapp.client.js';
+import { sendWaText, uploadWaMedia, sendWaImage } from '../services/whatsapp.client.js';
 import { logOutgoing } from '../services/message.store.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { logger } from '../config/logger.js';
@@ -185,6 +185,38 @@ export async function getMetrics(req, res) {
       convPerDay: convsByDay.rows,
     }
   });
+}
+
+export async function sendImage(req, res) {
+  const tid = tenantId(req);
+  const { waId } = req.params;
+  const caption = req.body?.caption || '';
+
+  if (!req.file) {
+    return res.status(400).json({ ok: false, error: 'file is required' });
+  }
+
+  const tenant = await tenantRepository.findById(tid);
+  if (!tenant?.wa_token) {
+    return res.status(503).json({ ok: false, error: 'Tenant WA credentials not configured' });
+  }
+
+  const mediaId = await uploadWaMedia(tenant, req.file.buffer, req.file.mimetype, req.file.originalname);
+  if (!mediaId) {
+    return res.status(502).json({ ok: false, error: 'Failed to upload media to WhatsApp' });
+  }
+
+  const outId = await sendWaImage(tenant, waId, mediaId, caption);
+  await logOutgoing({
+    tenantId: tid,
+    waId,
+    providerMsgId: outId,
+    body: caption || '📷 Imagen',
+    msgType: 'image',
+    meta: { source: 'human_admin', mediaId }
+  });
+
+  res.json({ ok: true, messageId: outId });
 }
 
 export function sseConvStream(req, res) {

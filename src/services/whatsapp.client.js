@@ -36,6 +36,49 @@ export async function sendWaText(tenant, to, body) {
   return data?.messages?.[0]?.id || null;
 }
 
+export async function uploadWaMedia(tenant, fileBuffer, mimeType, filename) {
+  const url = `${baseUrl(tenant)}/media`;
+  const token = tenant?.wa_token || process.env.WHATSAPP_TOKEN;
+
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('file', new Blob([fileBuffer], { type: mimeType }), filename);
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error('WA media upload error', res.status, data);
+    return null;
+  }
+  return data?.id || null;
+}
+
+export async function sendWaImage(tenant, to, mediaId, caption = '') {
+  const url = `${baseUrl(tenant)}/messages`;
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'image',
+    image: { id: mediaId, ...(caption ? { caption } : {}) }
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: headers(tenant),
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error('WA image send error', res.status, data);
+    return null;
+  }
+  console.log('WA IMG OUT ok', data?.messages?.[0]?.id);
+  return data?.messages?.[0]?.id || null;
+}
+
 export async function markAsRead(tenant, messageId) {
   if (!messageId) return;
   const url = `${baseUrl(tenant)}/messages`;

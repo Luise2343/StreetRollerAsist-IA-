@@ -1,7 +1,17 @@
 import { Router } from 'express';
+import multer from 'multer';
 import * as ctrl from '../controllers/tenant.controller.js';
 import * as conv from '../controllers/conversations.controller.js';
 import * as ads from '../controllers/ads.controller.js';
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 16 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  }
+});
 
 const router = Router();
 
@@ -29,5 +39,6 @@ router.get('/conversations/:waId/summary', conv.getSummary);
 router.post('/conversations/:waId/takeover', conv.setTakeover);
 router.post('/conversations/:waId/release', conv.releaseTakeover);
 router.post('/conversations/:waId/send', conv.sendMessage);
+router.post('/conversations/:waId/send-image', upload.single('file'), conv.sendImage);
 
 export default router;
