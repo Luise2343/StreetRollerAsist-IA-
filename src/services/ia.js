@@ -331,7 +331,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
 
       if (call.function.name === 'create_order') {
         const args = JSON.parse(call.function.arguments || '{}');
-        const { product_sku, customer_name, delivery_phone, delivery_address, payment_method } = args;
+        const { product_sku, customer_name, delivery_phone, delivery_address } = args;
+        const rawMethod = (args.payment_method || '').toLowerCase();
+        const payment_method = rawMethod.includes('transfer') ? 'transferencia' : 'contra_entrega';
 
         if (!waId) {
           logger.warn({ action: 'create_order_skipped', reason: 'no_waId' });
