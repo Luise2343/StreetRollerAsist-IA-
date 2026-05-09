@@ -188,6 +188,11 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
       const inTakeover = await waProfileRepository.isTakeover(tenantId, from);
       if (inTakeover) {
         logger.info({ action: 'takeover_skip', tenantId, from });
+        sendPushToTenant(tenantId, {
+          title: `💬 Mensaje de +${from}`,
+          body: text.slice(0, 100),
+          data: { waId: from, tenantId }
+        }).catch(e => logger.warn({ action: 'push_takeover_error', message: e.message }));
         continue;
       }
 

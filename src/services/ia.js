@@ -7,6 +7,7 @@ import { orderRepository } from '../repositories/order.repository.js';
 import { productRepository } from '../repositories/product.repository.js';
 import { adMapRepository } from '../repositories/ad-map.repository.js';
 import { sendWaText } from './whatsapp.client.js';
+import { sendPushToTenant } from './push.service.js';
 import { logger } from '../config/logger.js';
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '50373130634';
@@ -371,6 +372,11 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             `Dirección: ${delivery_address}\n` +
             `Pago: ${payLabel}` +
             (adId ? `\nAnuncio: ${adId}` : '');
+          sendPushToTenant(tenant.id, {
+            title: `🛒 Nueva orden #${order.id}`,
+            body: `${customer_name} — ${product.name} ($${Number(product.basePrice).toFixed(2)})`,
+            data: { waId, tenantId: tenant.id, orderId: order.id }
+          }).catch(() => {});
           await sendWaText(tenant, OWNER_PHONE, notifMsg);
 
           logger.info({ action: 'create_order', tenantId: tenant.id, waId, orderId: order.id, product_sku, payment_method });
@@ -381,7 +387,8 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             messages: [...messages, choice, { role: 'tool', tool_call_id: call.id, content: toolResult }],
             max_tokens: maxOut
           });
-          return r2.choices?.[0]?.message?.content?.trim() || null;
+          return r2.choices?.[0]?.message?.content?.trim() ||
+            `✅ Tu orden ha sido registrada con éxito (#${order.id}). Nos pondremos en contacto contigo pronto para coordinar la entrega. ¡Gracias!`;
         } catch (error) {
           logger.error({ action: 'create_order_error', tenantId: tenant.id, error: error.message });
           return null;
