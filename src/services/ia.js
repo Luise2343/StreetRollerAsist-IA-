@@ -343,13 +343,16 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
         try {
           const product = await productRepository.findBySku(tenant.id, product_sku);
           if (!product) {
-            const toolResult = JSON.stringify({ error: 'Producto no encontrado' });
-            const r2 = await openai.chat.completions.create({
-              model,
-              messages: [...messages, choice, { role: 'tool', tool_call_id: call.id, content: toolResult }],
-              max_tokens: maxOut
-            });
-            return r2.choices?.[0]?.message?.content?.trim() || null;
+            logger.warn({ action: 'create_order_sku_not_found', tenantId: tenant.id, product_sku });
+            sendPushToTenant(tenant.id, {
+              title: '⚠️ Pedido sin SKU válido',
+              body: `${customer_name} quiere ordenar "${product_sku}" — revisar manualmente`,
+              data: { waId, tenantId: tenant.id }
+            }).catch(() => {});
+            await sendWaText(tenant, OWNER_PHONE,
+              `⚠️ Pedido recibido pero SKU no encontrado: "${product_sku}"\nCliente: ${customer_name}\nTel: ${delivery_phone}\nDirección: ${delivery_address}\nPago: ${payment_method}\nwa.me/${waId}`
+            ).catch(() => {});
+            return `¡Perfecto, ${customer_name}! Tu pedido ha sido recibido y en breve uno de nuestros agentes te confirmará los detalles por este mismo chat. 😊`;
           }
 
           const adId = ctx.profileFacts?.referral?.ad_id ?? null;
@@ -393,7 +396,15 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             `✅ Tu orden ha sido registrada con éxito (#${order.id}). Nos pondremos en contacto contigo pronto para coordinar la entrega. ¡Gracias!`;
         } catch (error) {
           logger.error({ action: 'create_order_error', tenantId: tenant.id, error: error.message });
-          return null;
+          sendPushToTenant(tenant.id, {
+            title: '⚠️ Error al registrar pedido',
+            body: `${customer_name} — revisar manualmente`,
+            data: { waId, tenantId: tenant.id }
+          }).catch(() => {});
+          await sendWaText(tenant, OWNER_PHONE,
+            `⚠️ Error al crear orden (${error.message})\nCliente: ${customer_name}\nTel: ${delivery_phone}\nDirección: ${delivery_address}\nProducto: ${product_sku}\nPago: ${payment_method}\nwa.me/${waId}`
+          ).catch(() => {});
+          return `¡Listo, ${customer_name}! Tu pedido fue recibido y un agente te contactará pronto para confirmar los detalles de entrega. 🙌`;
         }
       }
 
