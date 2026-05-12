@@ -77,18 +77,25 @@ function buildSearchToolSchema(specKeys) {
   };
 }
 
+// Builds messages for a second OpenAI call responding to a single tool call.
+// Filters the assistant message to only include the handled tool_call to avoid
+// "missing tool response" 400 errors when the model returned multiple tool calls.
+function buildToolResponseMessages(messages, assistantMessage, handledCall, toolResultStr) {
+  const filtered =
+    assistantMessage.tool_calls?.length > 1
+      ? { ...assistantMessage, tool_calls: [handledCall] }
+      : assistantMessage;
+  return [
+    ...messages,
+    filtered,
+    { role: 'tool', tool_call_id: handledCall.id, content: toolResultStr }
+  ];
+}
+
 async function answerWithProducts(messages, choice, call, products, maxTokens) {
   const r2 = await openai.chat.completions.create({
     model: choice.model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages: [
-      ...messages,
-      choice,
-      {
-        role: 'tool',
-        tool_call_id: call.id,
-        content: JSON.stringify(products)
-      }
-    ],
+    messages: buildToolResponseMessages(messages, choice, call, JSON.stringify(products)),
     max_tokens: maxTokens
   });
 
@@ -306,15 +313,7 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           const toolResult = JSON.stringify({ ok: true });
           const r2 = await openai.chat.completions.create({
             model,
-            messages: [
-              ...messages,
-              choice,
-              {
-                role: 'tool',
-                tool_call_id: call.id,
-                content: toolResult
-              }
-            ],
+            messages: buildToolResponseMessages(messages, choice, call, toolResult),
             max_tokens: maxOut
           });
 
@@ -389,7 +388,7 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           const toolResult = JSON.stringify({ order_id: order.id, total: order.total, status: 'created' });
           const r2 = await openai.chat.completions.create({
             model,
-            messages: [...messages, choice, { role: 'tool', tool_call_id: call.id, content: toolResult }],
+            messages: buildToolResponseMessages(messages, choice, call, toolResult),
             max_tokens: maxOut
           });
           return r2.choices?.[0]?.message?.content?.trim() ||
@@ -420,6 +419,12 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
         try {
           const escalatedAt = new Date().toISOString();
 
+          // Dedup: don't re-send WA notification if owner was already notified in the last 30 min
+          const lastEscalation = ctx?.profileFacts?.escalated_at;
+          const COOLDOWN_MS = 30 * 60 * 1000;
+          const alreadyNotified =
+            lastEscalation && Date.now() - new Date(lastEscalation).getTime() < COOLDOWN_MS;
+
           const facts = {
             escalated_at: escalatedAt,
             escalation_reason: reason,
@@ -434,35 +439,29 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             waId,
             reason,
             summary,
-            escalatedAt
+            escalatedAt,
+            skippedWA: !!alreadyNotified
           });
 
-          const reasonLabels = {
-            missing_order_data: '🛒 Quiere comprar — faltan datos',
-            ready_to_buy: '🛒 Listo para comprar',
-            complaint: '⚠️ Reclamo',
-            bulk_order: '📦 Orden por volumen',
-            technical_question: '🔧 Consulta técnica',
-            other: 'ℹ️ Otro'
-          };
-          const notifMsg =
-            `${reasonLabels[reason] || reason}\n` +
-            `Cliente: wa.me/${waId}\n\n` +
-            `${summary}`;
-          await sendWaText(tenant, OWNER_PHONE, notifMsg);
+          if (!alreadyNotified) {
+            const reasonLabels = {
+              missing_order_data: '🛒 Quiere comprar — faltan datos',
+              complaint: '⚠️ Reclamo',
+              bulk_order: '📦 Orden por volumen',
+              technical_question: '🔧 Consulta técnica',
+              other: 'ℹ️ Otro'
+            };
+            const notifMsg =
+              `${reasonLabels[reason] || reason}\n` +
+              `Cliente: wa.me/${waId}\n\n` +
+              `${summary}`;
+            await sendWaText(tenant, OWNER_PHONE, notifMsg);
+          }
 
           const toolResult = JSON.stringify({ ok: true, message: 'Propietario notificado' });
           const r2 = await openai.chat.completions.create({
             model,
-            messages: [
-              ...messages,
-              choice,
-              {
-                role: 'tool',
-                tool_call_id: call.id,
-                content: toolResult
-              }
-            ],
+            messages: buildToolResponseMessages(messages, choice, call, toolResult),
             max_tokens: maxOut
           });
 
