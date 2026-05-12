@@ -1,6 +1,22 @@
 // src/repositories/tenant.repository.js
 import { pool } from '../config/db.js';
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const cache = new Map(); // key → { value, expiresAt }
+
+function cGet(key) {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() > entry.expiresAt) { cache.delete(key); return undefined; }
+  return entry.value;
+}
+function cSet(key, value) {
+  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+function cDel(...keys) {
+  keys.forEach(k => cache.delete(k));
+}
+
 const rowToTenant = r =>
   r
     ? {
@@ -27,20 +43,32 @@ const rowToTenant = r =>
 export const tenantRepository = {
   async findByWaPhoneNumberId(phoneNumberId) {
     if (!phoneNumberId) return null;
+    const key = `phone:${phoneNumberId}`;
+    const cached = cGet(key);
+    if (cached !== undefined) return cached;
     const { rows } = await pool.query(
       `SELECT * FROM tenant WHERE wa_phone_number_id = $1 AND active = true LIMIT 1`,
       [String(phoneNumberId)]
     );
-    return rowToTenant(rows[0]);
+    const tenant = rowToTenant(rows[0]);
+    cSet(key, tenant);
+    if (tenant) { cSet(`id:${tenant.id}`, tenant); cSet(`apikey:${tenant.api_key}`, tenant); }
+    return tenant;
   },
 
   async findByApiKey(apiKey) {
     if (!apiKey) return null;
+    const key = `apikey:${apiKey}`;
+    const cached = cGet(key);
+    if (cached !== undefined) return cached;
     const { rows } = await pool.query(
       `SELECT * FROM tenant WHERE api_key = $1 AND active = true LIMIT 1`,
       [apiKey]
     );
-    return rowToTenant(rows[0]);
+    const tenant = rowToTenant(rows[0]);
+    cSet(key, tenant);
+    if (tenant) { cSet(`id:${tenant.id}`, tenant); cSet(`phone:${tenant.wa_phone_number_id}`, tenant); }
+    return tenant;
   },
 
   async findByWaVerifyToken(token) {
@@ -53,8 +81,14 @@ export const tenantRepository = {
   },
 
   async findById(id) {
+    const key = `id:${id}`;
+    const cached = cGet(key);
+    if (cached !== undefined) return cached;
     const { rows } = await pool.query(`SELECT * FROM tenant WHERE id = $1 LIMIT 1`, [id]);
-    return rowToTenant(rows[0]);
+    const tenant = rowToTenant(rows[0]);
+    cSet(key, tenant);
+    if (tenant) { cSet(`phone:${tenant.wa_phone_number_id}`, tenant); cSet(`apikey:${tenant.api_key}`, tenant); }
+    return tenant;
   },
 
   async listAll({ limit = 200 } = {}) {
@@ -150,7 +184,11 @@ export const tenantRepository = {
       `UPDATE tenant SET ${sets.join(', ')} WHERE id = $${i} RETURNING *`,
       vals
     );
-    return rowToTenant(rows[0]);
+    const updated = rowToTenant(rows[0]);
+    if (updated) {
+      cDel(`id:${updated.id}`, `phone:${updated.wa_phone_number_id}`, `apikey:${updated.api_key}`);
+    }
+    return updated;
   },
 
   async listCategories(tenantId) {
