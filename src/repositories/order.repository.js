@@ -109,6 +109,38 @@ export const orderRepository = {
     }
   },
 
+  async findAllAdmin(tenantId, { limit = 200 } = {}) {
+    const { rows } = await pool.query(
+      `SELECT o.id, o.wa_id, o.customer_id,
+              COALESCE(o.delivery_name, c.name) AS customer_name,
+              o.delivery_phone, o.delivery_address, o.payment_method, o.ad_id,
+              o.discount_total, o.tax_total, o.total,
+              o.status, o.created_at, o.updated_at,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'product_id', oi.product_id,
+                    'product_name', p.name,
+                    'qty', oi.qty,
+                    'unit_price', oi.unit_price,
+                    'subtotal', oi.subtotal
+                  ) ORDER BY oi.id
+                ) FILTER (WHERE oi.id IS NOT NULL),
+                '[]'
+              ) AS items
+       FROM orders o
+       LEFT JOIN customer c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+       LEFT JOIN order_item oi ON oi.order_id = o.id
+       LEFT JOIN product p ON p.id = oi.product_id AND p.tenant_id = o.tenant_id
+       WHERE o.tenant_id = $1
+       GROUP BY o.id, c.name
+       ORDER BY o.id DESC
+       LIMIT $2`,
+      [tenantId, limit]
+    );
+    return rows;
+  },
+
   async createFromWA(tenantId, { waId, productId, unitPrice, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId = null }) {
     const client = await pool.connect();
     try {

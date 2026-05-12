@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as ctrl from '../controllers/tenant.controller.js';
 import * as conv from '../controllers/conversations.controller.js';
 import * as ads from '../controllers/ads.controller.js';
+import * as ordersAdmin from '../controllers/orders.admin.controller.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -28,6 +29,9 @@ router.post('/tenants/:tenantId/ads', ads.createAd);
 router.patch('/tenants/:tenantId/ads/:adId', ads.updateAd);
 router.delete('/tenants/:tenantId/ads/:adId', ads.deleteAd);
 router.delete('/tenants/:tenantId/ads/:adId/permanent', ads.hardDeleteAd);
+
+router.get('/tenants/:tenantId/orders', ordersAdmin.listOrders);
+router.patch('/tenants/:tenantId/orders/:orderId/status', ordersAdmin.updateStatus);
 
 router.get('/metrics', conv.getMetrics);
 router.get('/events', conv.sseGlobalStream);
