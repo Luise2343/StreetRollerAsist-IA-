@@ -355,6 +355,19 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           }
 
           const adId = ctx.profileFacts?.referral?.ad_id ?? null;
+
+          const existing = await orderRepository.findRecentByWaIdAndProduct(tenant.id, waId, product.id);
+          if (existing) {
+            logger.info({ action: 'create_order_dedup', tenantId: tenant.id, waId, orderId: existing.id, product_sku });
+            const r2 = await openai.chat.completions.create({
+              model,
+              messages: buildToolResponseMessages(messages, choice, call, JSON.stringify({ order_id: existing.id, total: existing.total, status: existing.status })),
+              max_tokens: maxOut
+            });
+            return r2.choices?.[0]?.message?.content?.trim() ||
+              `✅ Tu orden ya fue registrada (#${existing.id}). Nos pondremos en contacto contigo pronto para coordinar la entrega. ¡Gracias!`;
+          }
+
           const order = await orderRepository.createFromWA(tenant.id, {
             waId,
             productId: product.id,

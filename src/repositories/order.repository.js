@@ -141,6 +141,20 @@ export const orderRepository = {
     return rows;
   },
 
+  async findRecentByWaIdAndProduct(tenantId, waId, productId, windowMinutes = 15) {
+    const { rows } = await pool.query(
+      `SELECT o.id, o.total, o.status
+       FROM orders o
+       JOIN order_item oi ON oi.order_id = o.id
+       WHERE o.tenant_id = $1 AND o.wa_id = $2 AND oi.product_id = $3
+         AND o.created_at > NOW() - ($4 || ' minutes')::interval
+       ORDER BY o.id DESC
+       LIMIT 1`,
+      [tenantId, waId, productId, windowMinutes]
+    );
+    return rows[0] ?? null;
+  },
+
   async createFromWA(tenantId, { waId, productId, unitPrice, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId = null }) {
     const client = await pool.connect();
     try {
