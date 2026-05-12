@@ -79,6 +79,32 @@ export async function sendWaImage(tenant, to, mediaId, caption = '') {
   return data?.messages?.[0]?.id || null;
 }
 
+export async function fetchWaMedia(tenant, mediaId, timeoutMs = 10_000) {
+  const token = tenant?.wa_token || process.env.WHATSAPP_TOKEN;
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+
+  try {
+    const metaRes = await fetch(`https://graph.facebook.com/${WA_API_VERSION}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: ac.signal
+    });
+    if (!metaRes.ok) throw new Error(`Meta media metadata ${metaRes.status}`);
+    const { url, mime_type: contentType } = await metaRes.json();
+
+    const imgRes = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: ac.signal
+    });
+    if (!imgRes.ok) throw new Error(`Meta media download ${imgRes.status}`);
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    return { buffer, contentType: contentType || 'image/jpeg' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function markAsRead(tenant, messageId) {
   if (!messageId) return;
   const url = `${baseUrl(tenant)}/messages`;

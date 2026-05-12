@@ -1,6 +1,6 @@
 import { pool } from '../config/db.js';
 import { waProfileRepository } from '../repositories/wa-profile.repository.js';
-import { sendWaText, uploadWaMedia, sendWaImage } from '../services/whatsapp.client.js';
+import { sendWaText, uploadWaMedia, sendWaImage, fetchWaMedia } from '../services/whatsapp.client.js';
 import { logOutgoing } from '../services/message.store.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { logger } from '../config/logger.js';
@@ -52,7 +52,7 @@ export async function getMessages(req, res) {
   const before = req.query.before ? parseInt(req.query.before, 10) : null;
 
   const { rows } = await pool.query(
-    `SELECT id, direction, body, msg_type AS "msgType", created_at AS "createdAt"
+    `SELECT id, direction, body, msg_type AS "msgType", meta, created_at AS "createdAt"
      FROM wa_message
      WHERE tenant_id = $1 AND wa_id = $2
        AND ($3::int IS NULL OR id < $3)
@@ -269,4 +269,33 @@ export async function sendMessage(req, res) {
   });
 
   res.json({ ok: true, messageId: outId });
+}
+
+let _mediaInFlight = 0;
+const MAX_MEDIA_INFLIGHT = 5;
+
+export async function proxyWaMedia(req, res) {
+  if (_mediaInFlight >= MAX_MEDIA_INFLIGHT) {
+    return res.status(429).setHeader('Retry-After', '2').end();
+  }
+
+  const { mediaId } = req.params;
+  const tid = tenantId(req);
+
+  const tenant = await tenantRepository.findById(tid);
+  if (!tenant?.wa_token) return res.sendStatus(503);
+
+  _mediaInFlight++;
+  try {
+    const { buffer, contentType } = await fetchWaMedia(tenant, mediaId);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
+  } catch (e) {
+    const status = e.message?.includes('abort') ? 504 : 502;
+    logger.error({ action: 'proxy_wa_media_error', mediaId, message: e.message });
+    res.sendStatus(status);
+  } finally {
+    _mediaInFlight--;
+  }
 }

@@ -44,5 +44,6 @@ router.post('/conversations/:waId/takeover', conv.setTakeover);
 router.post('/conversations/:waId/release', conv.releaseTakeover);
 router.post('/conversations/:waId/send', conv.sendMessage);
 router.post('/conversations/:waId/send-image', upload.single('file'), conv.sendImage);
+router.get('/media/:mediaId', conv.proxyWaMedia);
 
 export default router;

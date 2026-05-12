@@ -77,6 +77,21 @@ router.post('/', metaSignature('META_APP_SECRET'), async (req, res) => {
     if (!messages.length) return res.sendStatus(200);
 
     for (const msg of messages) {
+      if (msg?.type === 'image' && msg?.image?.id) {
+        if (!remember(msg.id)) continue;
+        await markAsRead(tenant, msg.id);
+        await logIncoming({
+          tenantId: tenant.id,
+          waId: msg.from,
+          providerMsgId: msg.id,
+          body: msg.image?.caption || '📷 Imagen',
+          msgType: 'image',
+          meta: { mediaId: msg.image.id, mimeType: msg.image.mime_type }
+        });
+        sseEmit(msg.from, { type: 'message', direction: 'in' });
+        continue;
+      }
+
       const textBody = msg?.text?.body;
       if (msg?.type !== 'text' || !textBody) continue;
 
