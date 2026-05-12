@@ -226,14 +226,14 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       function: {
         name: 'notify_owner',
         description:
-          'Notifica al dueño cuando hay una venta lista para cerrar o un caso que requiere atención humana',
+          'Escala al dueño casos que requieren atención humana: reclamos, preguntas técnicas complejas, órdenes por volumen, o cuando el cliente quiere comprar pero FALTAN datos (nombre, teléfono, dirección o método de pago). NO usar si ya tienes todos los datos del pedido — usa create_order en ese caso.',
         parameters: {
           type: 'object',
           properties: {
             reason: {
               type: 'string',
-              enum: ['ready_to_buy', 'complaint', 'technical_question', 'bulk_order', 'other'],
-              description: 'Razón de la escalada'
+              enum: ['missing_order_data', 'complaint', 'technical_question', 'bulk_order', 'other'],
+              description: 'Razón de la escalada: missing_order_data = cliente quiere comprar pero faltan datos del pedido'
             },
             summary: {
               type: 'string',
@@ -438,6 +438,7 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           });
 
           const reasonLabels = {
+            missing_order_data: '🛒 Quiere comprar — faltan datos',
             ready_to_buy: '🛒 Listo para comprar',
             complaint: '⚠️ Reclamo',
             bulk_order: '📦 Orden por volumen',
