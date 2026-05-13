@@ -3,7 +3,7 @@ import { pool } from '../config/db.js';
 import { sendError } from '../middleware/error-handler.js';
 import { generateInvoicePdf } from '../services/invoice.service.js';
 import { uploadWaMedia, sendWaDocument, sendWaText } from '../services/whatsapp.client.js';
-import logger from '../config/logger.js';
+import { logger } from '../config/logger.js';
 
 async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, courierName }) {
   try {
