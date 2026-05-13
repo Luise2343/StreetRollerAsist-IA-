@@ -32,6 +32,7 @@ router.delete('/tenants/:tenantId/ads/:adId/permanent', ads.hardDeleteAd);
 
 router.get('/tenants/:tenantId/orders', ordersAdmin.listOrders);
 router.patch('/tenants/:tenantId/orders/:orderId/status', ordersAdmin.updateStatus);
+router.get('/tenants/:tenantId/orders/:orderId/invoice', ordersAdmin.getInvoice);
 
 router.get('/metrics', conv.getMetrics);
 router.get('/events', conv.sseGlobalStream);

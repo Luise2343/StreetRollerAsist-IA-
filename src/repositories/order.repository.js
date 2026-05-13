@@ -115,7 +115,8 @@ export const orderRepository = {
               COALESCE(o.delivery_name, c.name) AS customer_name,
               o.delivery_phone, o.delivery_address, o.payment_method, o.ad_id,
               o.discount_total, o.tax_total, o.total,
-              o.status, o.created_at, o.updated_at,
+              o.status, o.label_url, o.tracking_url, o.courier_name,
+              o.created_at, o.updated_at,
               COALESCE(
                 json_agg(
                   json_build_object(
@@ -151,6 +152,38 @@ export const orderRepository = {
        ORDER BY o.id DESC
        LIMIT 1`,
       [tenantId, waId, productId, windowMinutes]
+    );
+    return rows[0] ?? null;
+  },
+
+  async findByIdAdmin(tenantId, orderId) {
+    const { rows } = await pool.query(
+      `SELECT o.id, o.wa_id, o.customer_id,
+              COALESCE(o.delivery_name, c.name) AS customer_name,
+              o.delivery_phone, o.delivery_address, o.payment_method,
+              o.discount_total, o.tax_total, o.total,
+              o.status, o.created_at,
+              t.wa_token, t.wa_phone_number_id,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'product_id', oi.product_id,
+                    'product_name', p.name,
+                    'qty', oi.qty,
+                    'unit_price', oi.unit_price,
+                    'subtotal', oi.subtotal
+                  ) ORDER BY oi.id
+                ) FILTER (WHERE oi.id IS NOT NULL),
+                '[]'
+              ) AS items
+       FROM orders o
+       LEFT JOIN customer c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+       JOIN tenant t ON t.id = o.tenant_id
+       LEFT JOIN order_item oi ON oi.order_id = o.id
+       LEFT JOIN product p ON p.id = oi.product_id AND p.tenant_id = o.tenant_id
+       WHERE o.id = $2 AND o.tenant_id = $1
+       GROUP BY o.id, c.name, t.wa_token, t.wa_phone_number_id`,
+      [tenantId, orderId]
     );
     return rows[0] ?? null;
   },

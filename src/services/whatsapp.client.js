@@ -118,3 +118,25 @@ export async function markAsRead(tenant, messageId) {
     })
   }).catch(err => console.error('markAsRead error', err.message));
 }
+
+export async function sendWaDocument(tenant, to, mediaId, filename = 'factura.pdf', caption = '') {
+  const url = `${baseUrl(tenant)}/messages`;
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'document',
+    document: { id: mediaId, filename, ...(caption ? { caption } : {}) }
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: headers(tenant),
+    body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error('WA document send error', res.status, data);
+    return null;
+  }
+  console.log('WA DOC OUT ok', data?.messages?.[0]?.id);
+  return data?.messages?.[0]?.id || null;
+}
