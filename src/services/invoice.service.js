@@ -71,31 +71,33 @@ function formatPayment(method) {
  * @param {string} [opts.courierName] - Courier name (default 'XPRESS')
  * @returns {Promise<Buffer>}
  */
-export async function generateInvoicePdf(order, { labelUrl, trackingUrl, courierName = 'XPRESS' }) {
-  // 1. Validate labelUrl is from Boxful (SSRF prevention)
-  const allowedHosts = ['boxful.sfo3.digitaloceanspaces.com', 'api.goboxful.com'];
-  const parsedUrl = new URL(labelUrl);
-  if (!parsedUrl.protocol.startsWith('https') || !allowedHosts.includes(parsedUrl.hostname)) {
-    throw new Error(`labelUrl must be an https URL from an allowed Boxful host`);
+export async function generateInvoicePdf(order, { labelUrl, trackingUrl, courierName = 'XPRESS' } = {}) {
+  let labelBytes = null;
+  let deliveryInstructions = '';
+  let boxfulDoc = null;
+
+  if (labelUrl) {
+    // 1. Validate labelUrl is from Boxful (SSRF prevention)
+    const allowedHosts = ['boxful.sfo3.digitaloceanspaces.com', 'api.goboxful.com'];
+    const parsedUrl = new URL(labelUrl);
+    if (!parsedUrl.protocol.startsWith('https') || !allowedHosts.includes(parsedUrl.hostname)) {
+      throw new Error(`labelUrl must be an https URL from an allowed Boxful host`);
+    }
+
+    // 2. Download Boxful label PDF (with timeout)
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 15_000);
+    try {
+      const labelRes = await fetch(labelUrl, { signal: ac.signal });
+      if (!labelRes.ok) throw new Error(`Failed to download label: ${labelRes.status}`);
+      labelBytes = Buffer.from(await labelRes.arrayBuffer());
+    } finally {
+      clearTimeout(timer);
+    }
+
+    deliveryInstructions = await extractBoxfulComments(labelBytes);
+    boxfulDoc = await PDFDocument.load(labelBytes);
   }
-
-  // 2. Download Boxful label PDF (with timeout)
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 15_000);
-  let labelBytes;
-  try {
-    const labelRes = await fetch(labelUrl, { signal: ac.signal });
-    if (!labelRes.ok) throw new Error(`Failed to download label: ${labelRes.status}`);
-    labelBytes = Buffer.from(await labelRes.arrayBuffer());
-  } finally {
-    clearTimeout(timer);
-  }
-
-  // 2. Extract delivery instructions from Boxful PDF comments
-  const deliveryInstructions = await extractBoxfulComments(labelBytes);
-
-  // 3. Load the Boxful PDF to embed
-  const boxfulDoc = await PDFDocument.load(labelBytes);
 
   // 4. Create invoice document
   const doc = await PDFDocument.create();
@@ -239,30 +241,33 @@ export async function generateInvoicePdf(order, { labelUrl, trackingUrl, courier
   }
   page.drawText(`Encargado de entrega ${courierName}`, { x: 38, y: detY, size: 9, font: helvetica, color: rgb(0.25, 0.25, 0.25) });
   detY -= 18;
-  page.drawText('LINK DE RASTREO', { x: 38, y: detY, size: 9, font: helveticaBold, color: rgb(0.15, 0.15, 0.15) });
-  detY -= 14;
-  page.drawText(trackingUrl, { x: 38, y: detY, size: 8, font: helvetica, color: rgb(0.1, 0.3, 0.8), maxWidth: 250 });
+  if (trackingUrl) {
+    page.drawText('LINK DE RASTREO', { x: 38, y: detY, size: 9, font: helveticaBold, color: rgb(0.15, 0.15, 0.15) });
+    detY -= 14;
+    page.drawText(trackingUrl, { x: 38, y: detY, size: 8, font: helvetica, color: rgb(0.1, 0.3, 0.8), maxWidth: 250 });
+  }
 
   // 12. Embed Boxful label on right half (x: 305–570), preserving aspect ratio
-  try {
-    const [embeddedPage] = await doc.embedPdf(boxfulDoc, [0]);
-    const availW = 265;
-    const availH = tableTop - (detailsY - 100) + 10;
-    const { width: srcW, height: srcH } = embeddedPage.scale(1);
-    const scale = Math.min(availW / srcW, availH / srcH);
-    const drawW = srcW * scale;
-    const drawH = srcH * scale;
-    // Center horizontally in the right column
-    const drawX = 305 + (availW - drawW) / 2;
-    page.drawPage(embeddedPage, {
-      x: drawX,
-      y: detailsY - 100,
-      width: drawW,
-      height: drawH,
-    });
-  } catch {
-    page.drawRectangle({ x: 305, y: detailsY - 100, width: 265, height: tableTop - (detailsY - 100) + 10, borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.5 });
-    page.drawText('Guía de envío adjunta', { x: 320, y: tableTop - 40, size: 10, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+  if (boxfulDoc) {
+    try {
+      const [embeddedPage] = await doc.embedPdf(boxfulDoc, [0]);
+      const availW = 265;
+      const availH = tableTop - (detailsY - 100) + 10;
+      const { width: srcW, height: srcH } = embeddedPage.scale(1);
+      const scale = Math.min(availW / srcW, availH / srcH);
+      const drawW = srcW * scale;
+      const drawH = srcH * scale;
+      const drawX = 305 + (availW - drawW) / 2;
+      page.drawPage(embeddedPage, {
+        x: drawX,
+        y: detailsY - 100,
+        width: drawW,
+        height: drawH,
+      });
+    } catch {
+      page.drawRectangle({ x: 305, y: detailsY - 100, width: 265, height: tableTop - (detailsY - 100) + 10, borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.5 });
+      page.drawText('Guía de envío adjunta', { x: 320, y: tableTop - 40, size: 10, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+    }
   }
 
   // 13. Footer

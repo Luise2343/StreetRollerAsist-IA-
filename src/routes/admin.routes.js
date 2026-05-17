@@ -31,6 +31,7 @@ router.delete('/tenants/:tenantId/ads/:adId', ads.deleteAd);
 router.delete('/tenants/:tenantId/ads/:adId/permanent', ads.hardDeleteAd);
 
 router.get('/tenants/:tenantId/orders', ordersAdmin.listOrders);
+router.post('/tenants/:tenantId/orders', ordersAdmin.createManualOrder);
 router.patch('/tenants/:tenantId/orders/:orderId/status', ordersAdmin.updateStatus);
 router.get('/tenants/:tenantId/orders/:orderId/invoice', ordersAdmin.getInvoice);
 

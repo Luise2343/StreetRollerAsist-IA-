@@ -17,21 +17,44 @@ async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, cour
     const mediaId = await uploadWaMedia(tenant, pdfBuffer, 'application/pdf', `pedido-${orderId}.pdf`);
     if (mediaId) {
       await sendWaDocument(tenant, order.wa_id, mediaId, `pedido-${orderId}.pdf`);
+      const trackingLine = trackingUrl
+        ? `\nLink de rastreo: ${trackingUrl}`
+        : '';
       await sendWaText(
         tenant,
         order.wa_id,
-        `Su orden ha sido generada, le comparto su factura de consumidor final y el link de rastreo para que pueda supervisar el estado de su orden:\n${trackingUrl}`
+        `Su orden ha sido confirmada. Le adjuntamos la factura de consumidor final.${trackingLine}`
       );
     } else {
-      await sendWaText(
-        tenant,
-        order.wa_id,
-        `Su orden ha sido confirmada. Puede rastrear su envío aquí:\n${trackingUrl}`
-      );
+      const msg = trackingUrl
+        ? `Su orden ha sido confirmada. Puede rastrear su envío aquí:\n${trackingUrl}`
+        : `Su orden ha sido confirmada.`;
+      await sendWaText(tenant, order.wa_id, msg);
     }
     logger.info({ orderId, wa_id: order.wa_id }, 'Order confirmation sent via WhatsApp');
   } catch (err) {
     logger.error({ err, orderId }, 'Failed to send order confirmation via WhatsApp');
+  }
+}
+
+export async function createManualOrder(req, res) {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    const { delivery_name, delivery_phone, delivery_address, payment_method, items, wa_id } = req.body;
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ ok: false, error: 'items array with at least one line is required' });
+    }
+    const row = await orderRepository.createManual(tenantId, {
+      deliveryName: delivery_name ?? null,
+      deliveryPhone: delivery_phone ?? null,
+      deliveryAddress: delivery_address ?? null,
+      paymentMethod: payment_method ?? null,
+      waId: wa_id ?? null,
+      items,
+    });
+    res.status(201).json({ ok: true, data: row });
+  } catch (e) {
+    sendError(res, e.status || 500, e, 'Failed to create manual order');
   }
 }
 
@@ -41,12 +64,9 @@ export async function getInvoice(req, res) {
     const orderId = Number(req.params.orderId);
     const order = await orderRepository.findByIdAdmin(tenantId, orderId);
     if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
-    if (!order.label_url || !order.tracking_url) {
-      return res.status(400).json({ ok: false, error: 'Order has no shipment data yet' });
-    }
     const pdfBuffer = await generateInvoicePdf(order, {
-      labelUrl: order.label_url,
-      trackingUrl: order.tracking_url,
+      labelUrl: order.label_url ?? null,
+      trackingUrl: order.tracking_url ?? null,
       courierName: order.courier_name || 'XPRESS',
     });
     res.set('Content-Type', 'application/pdf');
@@ -72,7 +92,7 @@ export async function updateStatus(req, res) {
   try {
     const tenantId = Number(req.params.tenantId);
     const orderId = Number(req.params.orderId);
-    const { status, label_url, tracking_url, courier_name } = req.body;
+    const { status, label_url, tracking_url, courier_name, send_invoice = false } = req.body;
     const VALID = ['new', 'confirmed', 'shipped', 'delivered', 'cancelled'];
     if (!VALID.includes(status)) {
       return res.status(400).json({ ok: false, error: `status must be one of: ${VALID.join(', ')}` });
@@ -89,10 +109,10 @@ export async function updateStatus(req, res) {
     if (!rows[0]) return res.status(404).json({ ok: false, error: 'Order not found or status already set' });
     res.json({ ok: true, data: rows[0] });
 
-    if (status === 'confirmed' && label_url && tracking_url) {
+    if (status === 'confirmed' && send_invoice) {
       onOrderConfirmed(tenantId, orderId, {
-        labelUrl: label_url,
-        trackingUrl: tracking_url,
+        labelUrl: label_url ?? null,
+        trackingUrl: tracking_url ?? null,
         courierName: courier_name || 'XPRESS',
       });
     }

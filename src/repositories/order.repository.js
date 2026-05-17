@@ -188,6 +188,52 @@ export const orderRepository = {
     return rows[0] ?? null;
   },
 
+  async createManual(tenantId, { deliveryName, deliveryPhone, deliveryAddress, paymentMethod, waId = null, items }) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: orderRows } = await client.query(
+        `INSERT INTO orders (tenant_id, wa_id, delivery_name, delivery_phone, delivery_address, payment_method, total, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 0, 'new') RETURNING id`,
+        [tenantId, waId, deliveryName, deliveryPhone, deliveryAddress, paymentMethod]
+      );
+      const orderId = orderRows[0].id;
+      let total = 0;
+      for (const line of items) {
+        const { product_id, qty, unit_price = null } = line;
+        let up = unit_price !== null && unit_price !== undefined ? Number(unit_price) : null;
+        if (up === null) {
+          const pr = await client.query(
+            `SELECT base_price FROM product WHERE id = $1 AND tenant_id = $2`,
+            [product_id, tenantId]
+          );
+          if (!pr.rows[0]) {
+            const err = new Error(`Product ${product_id} not found`);
+            err.status = 404;
+            throw err;
+          }
+          up = Number(pr.rows[0].base_price);
+        }
+        await client.query(
+          `INSERT INTO order_item (order_id, product_id, qty, unit_price) VALUES ($1, $2, $3, $4)`,
+          [orderId, product_id, qty, up]
+        );
+        total += qty * up;
+      }
+      const { rows: final } = await client.query(
+        `UPDATE orders SET total = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+        [orderId, total]
+      );
+      await client.query('COMMIT');
+      return final[0];
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  },
+
   async createFromWA(tenantId, { waId, productId, unitPrice, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId = null }) {
     const client = await pool.connect();
     try {
