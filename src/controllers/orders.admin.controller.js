@@ -3,7 +3,42 @@ import { pool } from '../config/db.js';
 import { sendError } from '../middleware/error-handler.js';
 import { generateInvoicePdf } from '../services/invoice.service.js';
 import { uploadWaMedia, sendWaDocument, sendWaText } from '../services/whatsapp.client.js';
+import { inventoryService } from '../services/business/inventory.service.js';
 import { logger } from '../config/logger.js';
+
+async function syncInventoryForStatusChange(tenantId, orderId, prevStatus, newStatus) {
+  const wasConfirmed = prevStatus === 'confirmed';
+  const isConfirmed = newStatus === 'confirmed';
+  if (wasConfirmed === isConfirmed) return; // no transition either way
+
+  // Pull line items
+  const { rows: items } = await pool.query(
+    `SELECT product_id, qty FROM order_item WHERE order_id = $1`,
+    [orderId]
+  );
+  if (!items.length) return;
+
+  for (const it of items) {
+    const delta = isConfirmed ? -Number(it.qty) : Number(it.qty);
+    const reason = isConfirmed ? 'order_confirmed' : 'order_cancelled';
+    try {
+      await inventoryService.adjustStock(tenantId, it.product_id, delta, {
+        reason,
+        referenceType: 'order',
+        referenceId: orderId
+      });
+    } catch (e) {
+      logger.error({
+        action: 'inventory_sync_failed',
+        orderId,
+        productId: it.product_id,
+        delta,
+        reason,
+        error: e.message
+      });
+    }
+  }
+}
 
 async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, courierName }) {
   try {
@@ -97,6 +132,12 @@ export async function updateStatus(req, res) {
     if (!VALID.includes(status)) {
       return res.status(400).json({ ok: false, error: `status must be one of: ${VALID.join(', ')}` });
     }
+    const { rows: prev } = await pool.query(
+      `SELECT status FROM orders WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+      [orderId, tenantId]
+    );
+    const prevStatus = prev[0]?.status ?? null;
+
     const { rows } = await pool.query(
       `UPDATE orders SET status = $1, updated_at = now(),
         label_url = COALESCE($4, label_url),
@@ -108,6 +149,11 @@ export async function updateStatus(req, res) {
     );
     if (!rows[0]) return res.status(404).json({ ok: false, error: 'Order not found or status already set' });
     res.json({ ok: true, data: rows[0] });
+
+    // Sync inventory in background (don't block response)
+    syncInventoryForStatusChange(tenantId, orderId, prevStatus, status).catch(e =>
+      logger.error({ action: 'inventory_sync_async_failed', orderId, error: e.message })
+    );
 
     if (status === 'confirmed' && send_invoice) {
       onOrderConfirmed(tenantId, orderId, {

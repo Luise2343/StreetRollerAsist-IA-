@@ -8,6 +8,7 @@ import { productRepository } from '../repositories/product.repository.js';
 import { adMapRepository } from '../repositories/ad-map.repository.js';
 import { sendWaText } from './whatsapp.client.js';
 import { sendPushToTenant } from './push.service.js';
+import { notificationService } from './business/notification.service.js';
 import { logger } from '../config/logger.js';
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '50373130634';
@@ -310,6 +311,16 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             note
           });
 
+          if (['qualified', 'negotiating', 'closed'].includes(classification)) {
+            notificationService.notify(tenant.id, {
+              type: 'new_lead',
+              severity: 'info',
+              title: `Lead ${classification}`,
+              body: note || `Cliente clasificado como ${classification}`,
+              data: { waId, classification, note: note || null }
+            }, false).catch(e => logger.error({ action: 'notify_persist_error', error: e.message }));
+          }
+
           const toolResult = JSON.stringify({ ok: true });
           const r2 = await openai.chat.completions.create({
             model,
@@ -394,6 +405,13 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             body: `${customer_name} — ${product.name} ($${Number(product.basePrice).toFixed(2)})`,
             data: { waId, tenantId: tenant.id, orderId: order.id }
           }).catch(() => {});
+          notificationService.notify(tenant.id, {
+            type: 'new_order',
+            severity: 'info',
+            title: `🛒 Nueva orden #${order.id}`,
+            body: `${customer_name} — ${product.name} ($${Number(product.basePrice).toFixed(2)})`,
+            data: { waId, orderId: order.id, productSku: product_sku, paymentMethod: payment_method, adId }
+          }, false).catch(e => logger.error({ action: 'notify_persist_error', error: e.message }));
           await sendWaText(tenant, OWNER_PHONE, notifMsg);
 
           logger.info({ action: 'create_order', tenantId: tenant.id, waId, orderId: order.id, product_sku, payment_method });
@@ -455,6 +473,21 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             escalatedAt,
             skippedWA: !!alreadyNotified
           });
+
+          const notifTypeMap = {
+            missing_order_data: 'new_lead',
+            complaint: 'lead_escalated',
+            bulk_order: 'new_lead',
+            technical_question: 'system',
+            other: 'system'
+          };
+          notificationService.notify(tenant.id, {
+            type: notifTypeMap[reason] || 'system',
+            severity: reason === 'complaint' ? 'warning' : 'info',
+            title: `Escalación: ${reason}`,
+            body: summary,
+            data: { waId, reason, escalatedAt }
+          }, false).catch(e => logger.error({ action: 'notify_persist_error', error: e.message }));
 
           if (!alreadyNotified) {
             const reasonLabels = {

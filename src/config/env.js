@@ -54,6 +54,11 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_EMAIL: z.string().optional(),
 
+  // JWT Authentication
+  JWT_SECRET: z.string().min(32).optional(),
+  JWT_ACCESS_TTL: z.string().default('15m'),
+  JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
   // HTTP
   LOG_HTTP: boolish.default('true'),
   CORS_ORIGIN: z.string().default('*'),
@@ -71,3 +76,14 @@ function validateEnv() {
 }
 
 export const env = validateEnv();
+
+// Initialize JWT_SECRET: generate random 32-byte key in dev/test if not set
+if (!env.JWT_SECRET) {
+  if (env.NODE_ENV === 'production') {
+    console.error('[env] JWT_SECRET is required in production (min 32 chars)');
+    process.exit(1);
+  }
+  const { randomBytes } = await import('crypto');
+  env.JWT_SECRET = randomBytes(32).toString('hex');
+  console.warn('[env] JWT_SECRET not set; generated random key for non-production. Set JWT_SECRET in .env for production.');
+}

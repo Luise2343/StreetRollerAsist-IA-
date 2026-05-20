@@ -19,6 +19,8 @@ import { requireApiKey } from './middleware/auth.js';
 import { requireAdmin } from './middleware/admin-auth.js';
 import adminRoutes from './routes/admin.routes.js';
 import pushRoutes from './routes/push.routes.js';
+import authRoutes from './routes/auth.routes.js';
+import notificationsRoutes from './routes/notifications.routes.js';
 
 const app = express();
 
@@ -111,6 +113,7 @@ app.get('/health/db', async (_req, res) => {
 app.use('/webhooks/instagram', webhookLimiter, instagramWebhook);
 app.use('/webhooks/whatsapp', webhookLimiter, whatsappWebhook);
 
+app.use('/auth', apiLimiter, authRoutes);
 app.use('/admin', apiLimiter, requireAdmin, adminRoutes);
 app.use('/push', apiLimiter, pushRoutes);
 
@@ -120,6 +123,7 @@ app.use('/api/customers', customers);
 app.use('/api/orders', orders);
 app.use('/api/payments', payments);
 app.use('/api/inventory', inventory);
+app.use('/api/notifications', notificationsRoutes);
 
 // Global error handler
 app.use((err, _req, res, _next) => {
