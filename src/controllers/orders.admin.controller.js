@@ -179,6 +179,7 @@ export async function deleteOrder(req, res) {
     if (rows[0].status !== 'cancelled') {
       return res.status(400).json({ ok: false, error: 'Only cancelled orders can be deleted' });
     }
+    await pool.query(`DELETE FROM payment WHERE order_id = $1`, [orderId]);
     await pool.query(`DELETE FROM order_item WHERE order_id = $1`, [orderId]);
     await pool.query(`DELETE FROM orders WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId]);
     res.json({ ok: true });

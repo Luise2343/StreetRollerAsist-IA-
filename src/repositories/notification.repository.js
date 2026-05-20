@@ -59,7 +59,7 @@ export const notificationRepository = {
     params.push(limit);
     params.push(offset);
 
-    const countResult = await pool.query(`SELECT COUNT(*) as count FROM notification ${whereClause}`, params.slice(0, paramIndex - 2));
+    const countResult = await pool.query(`SELECT COUNT(*) as count FROM notification ${whereClause}`, params.slice(0, paramIndex - 1));
     const total = parseInt(countResult.rows[0].count, 10);
 
     const { rows } = await pool.query(
