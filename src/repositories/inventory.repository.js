@@ -4,11 +4,23 @@ import { pool } from '../config/db.js';
 export const inventoryRepository = {
   async findAll(tenantId, { limit = 200 } = {}) {
     const { rows } = await pool.query(
-      `SELECT i.id, i.product_id, p.name AS product_name,
-              i.qty_on_hand, i.qty_reserved, i.updated_at
-       FROM inventory i
-       JOIN product p ON p.id = i.product_id AND p.tenant_id = $1
-       ORDER BY i.id DESC
+      `SELECT p.id AS product_id,
+              p.name AS product_name,
+              p.description,
+              p.sku,
+              p.brand,
+              p.category,
+              p.specs,
+              p.base_price,
+              COALESCE(i.id, 0) AS id,
+              COALESCE(i.qty_on_hand, 0) AS qty_on_hand,
+              COALESCE(i.qty_reserved, 0) AS qty_reserved,
+              COALESCE(i.low_stock_threshold, 0) AS low_stock_threshold,
+              COALESCE(i.updated_at, NOW()) AS updated_at
+       FROM product p
+       LEFT JOIN inventory i ON i.product_id = p.id
+       WHERE p.tenant_id = $1 AND p.active = true
+       ORDER BY p.category, p.name
        LIMIT $2`,
       [tenantId, limit]
     );

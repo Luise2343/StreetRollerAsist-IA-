@@ -166,3 +166,23 @@ export async function updateStatus(req, res) {
     sendError(res, e.status || 500, e, 'Failed to update order status');
   }
 }
+
+export async function deleteOrder(req, res) {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    const orderId = Number(req.params.orderId);
+    const { rows } = await pool.query(
+      `SELECT id, status FROM orders WHERE id = $1 AND tenant_id = $2`,
+      [orderId, tenantId]
+    );
+    if (!rows.length) return res.status(404).json({ ok: false, error: 'Order not found' });
+    if (rows[0].status !== 'cancelled') {
+      return res.status(400).json({ ok: false, error: 'Only cancelled orders can be deleted' });
+    }
+    await pool.query(`DELETE FROM order_item WHERE order_id = $1`, [orderId]);
+    await pool.query(`DELETE FROM orders WHERE id = $1 AND tenant_id = $2`, [orderId, tenantId]);
+    res.json({ ok: true });
+  } catch (e) {
+    sendError(res, 500, e, 'Failed to delete order');
+  }
+}

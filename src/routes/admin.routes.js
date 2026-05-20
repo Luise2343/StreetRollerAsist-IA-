@@ -24,6 +24,7 @@ router.post('/tenants/:id/categories', ctrl.createCategory);
 router.patch('/tenants/:id/categories/:slug', ctrl.updateCategory);
 
 router.get('/tenants/:tenantId/products', ads.listProducts);
+router.patch('/tenants/:tenantId/products/:productId', ads.updateProduct);
 router.get('/tenants/:tenantId/ads', ads.listAds);
 router.post('/tenants/:tenantId/ads', ads.createAd);
 router.patch('/tenants/:tenantId/ads/:adId', ads.updateAd);
@@ -34,6 +35,7 @@ router.get('/tenants/:tenantId/orders', ordersAdmin.listOrders);
 router.post('/tenants/:tenantId/orders', ordersAdmin.createManualOrder);
 router.patch('/tenants/:tenantId/orders/:orderId/status', ordersAdmin.updateStatus);
 router.get('/tenants/:tenantId/orders/:orderId/invoice', ordersAdmin.getInvoice);
+router.delete('/tenants/:tenantId/orders/:orderId', ordersAdmin.deleteOrder);
 
 router.get('/metrics', conv.getMetrics);
 router.get('/events', conv.sseGlobalStream);
@@ -47,5 +49,8 @@ router.post('/conversations/:waId/release', conv.releaseTakeover);
 router.post('/conversations/:waId/send', conv.sendMessage);
 router.post('/conversations/:waId/send-image', upload.single('file'), conv.sendImage);
 router.get('/media/:mediaId', conv.proxyWaMedia);
+
+router.post('/conversations/:waId/archive', conv.archiveConversation);
+router.post('/conversations/:waId/unarchive', conv.unarchiveConversation);
 
 export default router;

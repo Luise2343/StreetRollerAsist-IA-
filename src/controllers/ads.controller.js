@@ -169,3 +169,26 @@ export async function hardDeleteAd(req, res) {
   if (!found) return res.status(404).json({ ok: false, error: 'Anuncio no encontrado o está activo' });
   res.json({ ok: true });
 }
+
+export async function updateProduct(req, res) {
+  const tenantId = Number(req.params.tenantId);
+  const productId = Number(req.params.productId);
+  const { description, specs } = req.body;
+  const updates = [];
+  const params = [tenantId, productId];
+  if (description !== undefined) {
+    params.push(description);
+    updates.push(`description = $${params.length}`);
+  }
+  if (specs !== undefined) {
+    params.push(JSON.stringify(specs));
+    updates.push(`specs = $${params.length}`);
+  }
+  if (!updates.length) return res.status(400).json({ ok: false, error: 'Nothing to update' });
+  const { rows } = await pool.query(
+    `UPDATE product SET ${updates.join(', ')} WHERE tenant_id = $1 AND id = $2 RETURNING id, name, description, specs, sku, base_price, brand, category`,
+    params
+  );
+  if (!rows.length) return res.status(404).json({ ok: false, error: 'Product not found' });
+  res.json({ ok: true, data: rows[0] });
+}

@@ -5,6 +5,7 @@ import { logOutgoing } from '../services/message.store.js';
 import { tenantRepository } from '../repositories/tenant.repository.js';
 import { logger } from '../config/logger.js';
 import { subscribeConv, unsubscribeConv, subscribeGlobal, unsubscribeGlobal } from '../services/sse.service.js';
+import { sendError } from '../middleware/error-handler.js';
 
 function tenantId(req) {
   return parseInt(req.query.tenantId || '3', 10);
@@ -269,6 +270,34 @@ export async function sendMessage(req, res) {
   });
 
   res.json({ ok: true, messageId: outId });
+}
+
+export async function archiveConversation(req, res) {
+  try {
+    const { waId } = req.params;
+    const tenantId = Number(req.query.tenantId || req.body.tenantId || 3);
+    await pool.query(
+      `UPDATE wa_profile SET facts_json = facts_json || '{"_archived": true}'::jsonb WHERE wa_id = $1 AND tenant_id = $2`,
+      [waId, tenantId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    sendError(res, 500, e, 'Failed to archive conversation');
+  }
+}
+
+export async function unarchiveConversation(req, res) {
+  try {
+    const { waId } = req.params;
+    const tenantId = Number(req.query.tenantId || req.body.tenantId || 3);
+    await pool.query(
+      `UPDATE wa_profile SET facts_json = facts_json - '_archived' WHERE wa_id = $1 AND tenant_id = $2`,
+      [waId, tenantId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    sendError(res, 500, e, 'Failed to unarchive conversation');
+  }
 }
 
 let _mediaInFlight = 0;
