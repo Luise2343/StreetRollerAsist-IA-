@@ -10,6 +10,7 @@ import { sendWaText } from './whatsapp.client.js';
 import { sendPushToTenant } from './push.service.js';
 import { notificationService } from './business/notification.service.js';
 import { logger } from '../config/logger.js';
+import { runEscalationChecks } from './escalation-detector.js';
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '50373130634';
 
@@ -93,14 +94,24 @@ function buildToolResponseMessages(messages, assistantMessage, handledCall, tool
   ];
 }
 
-async function answerWithProducts(messages, choice, call, products, maxTokens) {
+async function answerWithProducts(messages, choice, call, products, maxTokens, escalationCtx = null) {
   const r2 = await openai.chat.completions.create({
     model: choice.model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
     messages: buildToolResponseMessages(messages, choice, call, JSON.stringify(products)),
     max_tokens: maxTokens
   });
 
-  return r2.choices?.[0]?.message?.content?.trim() || null;
+  const reply = r2.choices?.[0]?.message?.content?.trim() || null;
+  if (reply && escalationCtx?.waId) {
+    runEscalationChecks({
+      tenantId: escalationCtx.tenantId,
+      waId: escalationCtx.waId,
+      userText: escalationCtx.userText,
+      aiReply: reply,
+      ctx: escalationCtx.ctx
+    }).catch(e => logger.error({ action: 'escalation_check_error', error: e.message }));
+  }
+  return reply;
 }
 
 export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
@@ -278,12 +289,12 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           priceMin: args.priceMin,
           priceMax: args.priceMax
         });
-        return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut);
+        return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut, { tenantId: tenant.id, waId, userText, ctx });
       }
 
       if (call.function.name === 'listAllProducts') {
         const products = await listAllProducts(tenant.id);
-        return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut);
+        return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut, { tenantId: tenant.id, waId, userText, ctx });
       }
 
       if (call.function.name === 'classify_lead') {
@@ -523,11 +534,27 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       }
     }
 
-    return choice?.content?.trim() || null;
+    const finalReply = choice?.content?.trim() || null;
+    if (finalReply && waId) {
+      runEscalationChecks({ tenantId: tenant.id, waId, userText, aiReply: finalReply, ctx })
+        .catch(e => logger.error({ action: 'escalation_check_error', error: e.message }));
+    }
+    return finalReply;
   } catch (e) {
     logger.error({ action: 'openai_error', status: e?.status, code: e?.code, message: e?.message });
     return null;
   }
+}
+
+// Cooldown en memoria por tenant para no spamear cuando OpenAI cae
+const openaiErrorCooldown = new Map();
+const OPENAI_ERROR_COOLDOWN_MS = 15 * 60 * 1000;
+
+function shouldNotifyOpenAIError(tenantId) {
+  const last = openaiErrorCooldown.get(tenantId);
+  if (last && Date.now() - last < OPENAI_ERROR_COOLDOWN_MS) return false;
+  openaiErrorCooldown.set(tenantId, Date.now());
+  return true;
 }
 
 // Retries con backoff lineal: 30s, 60s, 90s... hasta ~18 min total (9 intentos)
@@ -540,5 +567,23 @@ export async function aiReplyWithRetry(text, ctx, tenant, from, { maxRetries = 9
       await new Promise(r => setTimeout(r, delayMs * attempt));
     }
   }
+
+  if (shouldNotifyOpenAIError(tenant.id)) {
+    logger.error({ action: 'openai_exhausted', tenantId: tenant.id, from, attempts: maxRetries });
+    const body = `OpenAI no respondió tras ${maxRetries} reintentos (~${Math.round((maxRetries * (maxRetries + 1) / 2 * delayMs) / 60000)} min). Cliente wa.me/${from} sin respuesta.`;
+    notificationService.notify(tenant.id, {
+      type: 'ai_error',
+      severity: 'critical',
+      title: '🚨 IA caída — sin respuesta',
+      body,
+      data: { waId: from, attempts: maxRetries }
+    }, false).catch(e => logger.error({ action: 'notify_persist_error', error: e.message }));
+    sendPushToTenant(tenant.id, {
+      title: '🚨 IA caída — sin respuesta',
+      body,
+      data: { waId: from, tenantId: tenant.id }
+    }).catch(() => {});
+  }
+
   return { reply: null, failed: true };
 }
