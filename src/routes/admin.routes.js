@@ -53,4 +53,12 @@ router.get('/media/:mediaId', conv.proxyWaMedia);
 router.post('/conversations/:waId/archive', conv.archiveConversation);
 router.post('/conversations/:waId/unarchive', conv.unarchiveConversation);
 
+router.post('/test-notification', async (req, res) => {
+  const { notificationService } = await import('../services/business/notification.service.js');
+  const tenantId = Number(req.query.tenantId ?? 3);
+  const { type = 'system', severity = 'info', title = 'Test', body = 'Notificación de prueba' } = req.body ?? {};
+  const notif = await notificationService.notify(tenantId, { type, severity, title, body, data: {} });
+  res.json({ ok: true, data: notif });
+});
+
 export default router;
