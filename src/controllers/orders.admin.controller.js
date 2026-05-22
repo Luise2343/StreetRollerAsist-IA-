@@ -40,6 +40,11 @@ async function syncInventoryForStatusChange(tenantId, orderId, prevStatus, newSt
   }
 }
 
+async function loadInvoiceSettings(tenantId) {
+  const { rows } = await pool.query(`SELECT invoice_settings FROM tenant WHERE id = $1`, [tenantId]);
+  return rows[0]?.invoice_settings || {};
+}
+
 async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, courierName }) {
   try {
     const order = await orderRepository.findByIdAdmin(tenantId, orderId);
@@ -48,7 +53,8 @@ async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, cour
       return;
     }
     const tenant = { wa_token: order.wa_token, wa_phone_number_id: order.wa_phone_number_id };
-    const pdfBuffer = await generateInvoicePdf(order, { labelUrl, trackingUrl, courierName });
+    const settings = await loadInvoiceSettings(tenantId);
+    const pdfBuffer = await generateInvoicePdf(order, { labelUrl, trackingUrl, courierName, settings });
     const mediaId = await uploadWaMedia(tenant, pdfBuffer, 'application/pdf', `pedido-${orderId}.pdf`);
     if (mediaId) {
       await sendWaDocument(tenant, order.wa_id, mediaId, `pedido-${orderId}.pdf`);
@@ -99,10 +105,12 @@ export async function getInvoice(req, res) {
     const orderId = Number(req.params.orderId);
     const order = await orderRepository.findByIdAdmin(tenantId, orderId);
     if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
+    const settings = await loadInvoiceSettings(tenantId);
     const pdfBuffer = await generateInvoicePdf(order, {
       labelUrl: order.label_url ?? null,
       trackingUrl: order.tracking_url ?? null,
-      courierName: order.courier_name || 'XPRESS',
+      courierName: order.courier_name || undefined,
+      settings,
     });
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `inline; filename="pedido-${orderId}.pdf"`);

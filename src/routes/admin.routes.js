@@ -22,6 +22,8 @@ router.patch('/tenants/:id', ctrl.updateTenant);
 router.get('/tenants/:id/categories', ctrl.listCategories);
 router.post('/tenants/:id/categories', ctrl.createCategory);
 router.patch('/tenants/:id/categories/:slug', ctrl.updateCategory);
+router.get('/tenants/:id/invoice-settings', ctrl.getInvoiceSettings);
+router.patch('/tenants/:id/invoice-settings', ctrl.updateInvoiceSettings);
 
 router.get('/tenants/:tenantId/products', ads.listProducts);
 router.patch('/tenants/:tenantId/products/:productId', ads.updateProduct);

@@ -1,5 +1,39 @@
 // src/repositories/order.repository.js
 import { pool } from '../config/db.js';
+import crypto from 'crypto';
+
+/**
+ * Generate model_code and serial_number for a single order_item.
+ * Mirrors deriveCodes() in src/services/invoice.service.js exactly
+ * (SHA-1 for the hex segment, same string patterns).
+ *
+ * @param {object} p
+ * @param {number|string} p.orderId
+ * @param {number|string} p.productId
+ * @param {string}        p.productBrand    - product.brand (may be null/undefined)
+ * @param {string}        p.productCategory - product.category (may be null/undefined)
+ * @param {string|Date}   p.createdAt       - order.created_at
+ * @param {number}        p.ordinal         - 1-based position of this item within its order
+ * @returns {{ model_code: string, serial_number: string }}
+ */
+function generateItemCodes({ orderId, productId, productBrand, productCategory, createdAt, ordinal }) {
+  const brandCode = ((productBrand  || 'VP') .toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 2)) || 'VP';
+  const catCode   = ((productCategory || 'GEN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3)) || 'GEN';
+  const d         = new Date(createdAt);
+  const yy        = String(d.getFullYear()).slice(2);
+  const mm        = String(d.getMonth() + 1).padStart(2, '0');
+  const orderPad  = String(orderId).padStart(6, '0');
+  const itemPad   = String(ordinal).padStart(2, '0');        // 1-based
+  const productPad = String(productId).padStart(4, '0');
+  const index0    = ordinal - 1;                             // 0-based — matches JS forEach index in deriveCodes
+  const seed      = `${orderId}:${productId}:${index0}`;
+  const hex       = crypto.createHash('sha1').update(seed).digest('hex').slice(0, 4).toUpperCase();
+
+  return {
+    model_code:    `${brandCode}/${catCode}-${productPad}-${yy}`,
+    serial_number: `SN-${brandCode}-${yy}${mm}-${orderPad}-${itemPad}-${hex}`,
+  };
+}
 
 export const orderRepository = {
   async findAll(tenantId, { limit = 100 } = {}) {
@@ -169,9 +203,15 @@ export const orderRepository = {
                   json_build_object(
                     'product_id', oi.product_id,
                     'product_name', p.name,
+                    'sku', p.sku,
+                    'brand', p.brand,
+                    'category', p.category,
+                    'specs', p.specs,
                     'qty', oi.qty,
                     'unit_price', oi.unit_price,
-                    'subtotal', oi.subtotal
+                    'subtotal', oi.subtotal,
+                    'model_code', oi.model_code,
+                    'serial_number', oi.serial_number
                   ) ORDER BY oi.id
                 ) FILTER (WHERE oi.id IS NOT NULL),
                 '[]'
@@ -194,29 +234,44 @@ export const orderRepository = {
       await client.query('BEGIN');
       const { rows: orderRows } = await client.query(
         `INSERT INTO orders (tenant_id, wa_id, delivery_name, delivery_phone, delivery_address, payment_method, total, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 0, 'new') RETURNING id`,
+         VALUES ($1, $2, $3, $4, $5, $6, 0, 'new') RETURNING id, created_at`,
         [tenantId, waId, deliveryName, deliveryPhone, deliveryAddress, paymentMethod]
       );
-      const orderId = orderRows[0].id;
+      const orderId    = orderRows[0].id;
+      const createdAt  = orderRows[0].created_at;
       let total = 0;
+      let ordinal = 0; // 1-based position counter for generateItemCodes
       for (const line of items) {
         const { product_id, qty, unit_price = null } = line;
-        let up = unit_price !== null && unit_price !== undefined ? Number(unit_price) : null;
-        if (up === null) {
-          const pr = await client.query(
-            `SELECT base_price FROM product WHERE id = $1 AND tenant_id = $2`,
-            [product_id, tenantId]
-          );
-          if (!pr.rows[0]) {
-            const err = new Error(`Product ${product_id} not found`);
-            err.status = 404;
-            throw err;
-          }
-          up = Number(pr.rows[0].base_price);
+        ordinal += 1;
+
+        // Always fetch brand + category (needed for codes) along with base_price
+        const pr = await client.query(
+          `SELECT base_price, brand, category FROM product WHERE id = $1 AND tenant_id = $2`,
+          [product_id, tenantId]
+        );
+        if (!pr.rows[0]) {
+          const err = new Error(`Product ${product_id} not found`);
+          err.status = 404;
+          throw err;
         }
+        const up = (unit_price !== null && unit_price !== undefined)
+          ? Number(unit_price)
+          : Number(pr.rows[0].base_price);
+
+        const { model_code, serial_number } = generateItemCodes({
+          orderId,
+          productId:       product_id,
+          productBrand:    pr.rows[0].brand,
+          productCategory: pr.rows[0].category,
+          createdAt,
+          ordinal,
+        });
+
         await client.query(
-          `INSERT INTO order_item (order_id, product_id, qty, unit_price) VALUES ($1, $2, $3, $4)`,
-          [orderId, product_id, qty, up]
+          `INSERT INTO order_item (order_id, product_id, qty, unit_price, model_code, serial_number)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [orderId, product_id, qty, up, model_code, serial_number]
         );
         total += qty * up;
       }
@@ -241,13 +296,30 @@ export const orderRepository = {
       const { rows: orderRows } = await client.query(
         `INSERT INTO orders (tenant_id, wa_id, delivery_name, delivery_phone, delivery_address, payment_method, ad_id, total, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'new')
-         RETURNING id`,
+         RETURNING id, created_at`,
         [tenantId, waId, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId]
       );
       const orderId = orderRows[0].id;
+      const createdAt = orderRows[0].created_at;
+
+      const { rows: prRows } = await client.query(
+        `SELECT brand, category FROM product WHERE id = $1 AND tenant_id = $2`,
+        [productId, tenantId]
+      );
+      const product = prRows[0] || {};
+      const { model_code, serial_number } = generateItemCodes({
+        orderId,
+        productId,
+        productBrand: product.brand,
+        productCategory: product.category,
+        createdAt,
+        ordinal: 1,
+      });
+
       await client.query(
-        `INSERT INTO order_item (order_id, product_id, qty, unit_price) VALUES ($1, $2, 1, $3)`,
-        [orderId, productId, unitPrice]
+        `INSERT INTO order_item (order_id, product_id, qty, unit_price, model_code, serial_number)
+         VALUES ($1, $2, 1, $3, $4, $5)`,
+        [orderId, productId, unitPrice, model_code, serial_number]
       );
       const { rows: finalRows } = await client.query(
         `UPDATE orders SET total = $2, updated_at = now() WHERE id = $1 RETURNING *`,
