@@ -441,7 +441,8 @@ export async function generateInvoicePdf(order, { labelUrl, trackingUrl, courier
       // Align vertically with the financial breakdown: rowY is where breakdown starts,
       // place the QR centred in the left dead-space (tableLeft to breakLabelX-8).
       const qrX = tableLeft + 20;
-      const qrY = rowY - 95;
+      // Clamp so labels (qrY - 30) stay at least 40pt from the page bottom
+      const qrY = Math.max(rowY - 95, 70);
       page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSize, height: qrSize });
       // Label lines below the QR
       const qrLabel1 = 'Escanea para ' + (trackingUrl ? 'rastreo' : 'soporte');

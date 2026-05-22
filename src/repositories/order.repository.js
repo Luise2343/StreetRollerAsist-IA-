@@ -196,7 +196,7 @@ export const orderRepository = {
               COALESCE(o.delivery_name, c.name) AS customer_name,
               o.delivery_phone, o.delivery_address, o.payment_method,
               o.discount_total, o.tax_total, o.total,
-              o.status, o.created_at,
+              o.status, o.label_url, o.tracking_url, o.courier_name, o.created_at,
               t.wa_token, t.wa_phone_number_id,
               COALESCE(
                 json_agg(
