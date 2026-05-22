@@ -190,6 +190,40 @@ export async function updateOrderItems(req, res) {
   }
 }
 
+export async function updateOrder(req, res) {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    const orderId  = Number(req.params.orderId);
+    const { delivery_name, delivery_phone, delivery_address, payment_method, items } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE orders
+         SET delivery_name    = COALESCE($3, delivery_name),
+             delivery_phone   = COALESCE($4, delivery_phone),
+             delivery_address = COALESCE($5, delivery_address),
+             payment_method   = COALESCE($6, payment_method),
+             updated_at       = now()
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING id, delivery_name, delivery_phone, delivery_address, payment_method, total, updated_at`,
+      [orderId, tenantId,
+       delivery_name  ?? null,
+       delivery_phone ?? null,
+       delivery_address ?? null,
+       payment_method ?? null]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, error: 'Order not found' });
+
+    let itemsResult = null;
+    if (Array.isArray(items) && items.length) {
+      itemsResult = await orderRepository.updateItems(tenantId, orderId, items);
+    }
+
+    res.json({ ok: true, data: { ...rows[0], total: itemsResult?.total ?? rows[0].total } });
+  } catch (e) {
+    sendError(res, e.status || 500, e, 'Failed to update order');
+  }
+}
+
 export async function deleteOrder(req, res) {
   try {
     const tenantId = Number(req.params.tenantId);
