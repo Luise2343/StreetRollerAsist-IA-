@@ -175,6 +175,21 @@ export async function updateStatus(req, res) {
   }
 }
 
+export async function updateOrderItems(req, res) {
+  try {
+    const tenantId = Number(req.params.tenantId);
+    const orderId  = Number(req.params.orderId);
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) {
+      return res.status(400).json({ ok: false, error: 'items array with at least one line is required' });
+    }
+    const result = await orderRepository.updateItems(tenantId, orderId, items);
+    res.json({ ok: true, data: result });
+  } catch (e) {
+    sendError(res, e.status || 500, e, 'Failed to update order items');
+  }
+}
+
 export async function deleteOrder(req, res) {
   try {
     const tenantId = Number(req.params.tenantId);

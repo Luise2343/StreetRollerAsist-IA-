@@ -289,6 +289,65 @@ export const orderRepository = {
     }
   },
 
+  async updateItems(tenantId, orderId, items) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Validate order belongs to tenant and is still editable
+      const { rows: orderRows } = await client.query(
+        `SELECT id, created_at, status FROM orders WHERE id = $1 AND tenant_id = $2`,
+        [orderId, tenantId]
+      );
+      if (!orderRows[0]) {
+        const err = new Error('Order not found'); err.status = 404; throw err;
+      }
+      const { created_at: createdAt } = orderRows[0];
+
+      await client.query(`DELETE FROM order_item WHERE order_id = $1`, [orderId]);
+
+      let total = 0;
+      let ordinal = 0;
+      for (const line of items) {
+        const { product_id, qty, unit_price = null } = line;
+        ordinal += 1;
+        const pr = await client.query(
+          `SELECT base_price, brand, category FROM product WHERE id = $1 AND tenant_id = $2`,
+          [product_id, tenantId]
+        );
+        if (!pr.rows[0]) {
+          const err = new Error(`Product ${product_id} not found`); err.status = 404; throw err;
+        }
+        const up = (unit_price !== null && unit_price !== undefined)
+          ? Number(unit_price)
+          : Number(pr.rows[0].base_price);
+        const { model_code, serial_number } = generateItemCodes({
+          orderId, productId: product_id,
+          productBrand: pr.rows[0].brand,
+          productCategory: pr.rows[0].category,
+          createdAt, ordinal,
+        });
+        await client.query(
+          `INSERT INTO order_item (order_id, product_id, qty, unit_price, model_code, serial_number)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [orderId, product_id, qty, up, model_code, serial_number]
+        );
+        total += qty * up;
+      }
+      const { rows: final } = await client.query(
+        `UPDATE orders SET total = $2, updated_at = now() WHERE id = $1
+         RETURNING id, total, updated_at`,
+        [orderId, total]
+      );
+      await client.query('COMMIT');
+      return final[0];
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  },
+
   async createFromWA(tenantId, { waId, productId, unitPrice, deliveryName, deliveryPhone, deliveryAddress, paymentMethod, adId = null }) {
     const client = await pool.connect();
     try {
