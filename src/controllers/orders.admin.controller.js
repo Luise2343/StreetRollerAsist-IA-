@@ -57,9 +57,17 @@ async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, cour
     }
     // sendToWaId: original value for WhatsApp API (accepts + prefix)
     const sendToWaId = rawTarget;
-    // logWaId: normalized digits-only so it matches the existing wa_message conversation
-    // e.g. "+50373130634" → "50373130634" (avoids creating a duplicate chat)
-    const logWaId = order?.wa_id || String(rawTarget).replace(/\D/g, '');
+    // logWaId: find the existing wa_id in the DB whose suffix matches the delivery_phone
+    // (handles local format "76361812" matching full WA id "50376361812")
+    let logWaId = order?.wa_id;
+    if (!logWaId) {
+      const localDigits = String(rawTarget).replace(/\D/g, '');
+      const { rows: existing } = await pool.query(
+        `SELECT wa_id FROM wa_message WHERE tenant_id = $1 AND wa_id LIKE '%' || $2 LIMIT 1`,
+        [tenantId, localDigits]
+      );
+      logWaId = existing[0]?.wa_id || localDigits;
+    }
 
     const tenant = { wa_token: order.wa_token, wa_phone_number_id: order.wa_phone_number_id };
     const settings = await loadInvoiceSettings(tenantId);
