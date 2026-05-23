@@ -26,6 +26,7 @@ router.get('/tenants/:id/invoice-settings', ctrl.getInvoiceSettings);
 router.patch('/tenants/:id/invoice-settings', ctrl.updateInvoiceSettings);
 
 router.get('/tenants/:tenantId/products', ads.listProducts);
+router.post('/tenants/:tenantId/products', ads.createProduct);
 router.patch('/tenants/:tenantId/products/:productId', ads.updateProduct);
 router.get('/tenants/:tenantId/ads', ads.listAds);
 router.post('/tenants/:tenantId/ads', ads.createAd);

@@ -171,6 +171,30 @@ export async function hardDeleteAd(req, res) {
   res.json({ ok: true });
 }
 
+export async function createProduct(req, res) {
+  const tenantId = Number(req.params.tenantId);
+  const { name, sku, brand, category, base_price, description, specs } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ ok: false, error: 'name is required' });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO product (tenant_id, name, description, base_price, currency, category, brand, specs, sku, active)
+     VALUES ($1,$2,$3,$4,'GTQ',$5,$6,$7::jsonb,$8,true)
+     RETURNING id, name, description, base_price, category, brand, specs, sku, tenant_id`,
+    [
+      tenantId,
+      name.trim(),
+      description?.trim() || null,
+      base_price != null ? Number(base_price) : null,
+      category?.trim() || null,
+      brand?.trim() || null,
+      JSON.stringify(specs || {}),
+      sku?.trim() || null,
+    ]
+  );
+  res.status(201).json({ ok: true, data: rows[0] });
+}
+
 export async function updateProduct(req, res) {
   const tenantId = Number(req.params.tenantId);
   const productId = Number(req.params.productId);
