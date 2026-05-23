@@ -49,22 +49,27 @@ async function loadInvoiceSettings(tenantId) {
 async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, courierName }) {
   try {
     const order = await orderRepository.findByIdAdmin(tenantId, orderId);
-    // Bug fix: use delivery_phone as fallback when wa_id is absent (manual orders)
-    const targetWaId = order?.wa_id || order?.delivery_phone;
-    if (!targetWaId) {
+    // Use delivery_phone as fallback when wa_id is absent (manual orders)
+    const rawTarget = order?.wa_id || order?.delivery_phone;
+    if (!rawTarget) {
       logger.info({ orderId }, 'Order confirmed but no wa_id or delivery_phone — skipping WhatsApp notification');
       return;
     }
+    // sendToWaId: original value for WhatsApp API (accepts + prefix)
+    const sendToWaId = rawTarget;
+    // logWaId: normalized digits-only so it matches the existing wa_message conversation
+    // e.g. "+50373130634" → "50373130634" (avoids creating a duplicate chat)
+    const logWaId = order?.wa_id || String(rawTarget).replace(/\D/g, '');
+
     const tenant = { wa_token: order.wa_token, wa_phone_number_id: order.wa_phone_number_id };
     const settings = await loadInvoiceSettings(tenantId);
     const pdfBuffer = await generateInvoicePdf(order, { labelUrl, trackingUrl, courierName, settings });
     const mediaId = await uploadWaMedia(tenant, pdfBuffer, 'application/pdf', `pedido-${orderId}.pdf`);
     if (mediaId) {
-      const docMsgId = await sendWaDocument(tenant, targetWaId, mediaId, `pedido-${orderId}.pdf`);
-      // Bug fix: log outgoing messages so they appear in the chat
+      const docMsgId = await sendWaDocument(tenant, sendToWaId, mediaId, `pedido-${orderId}.pdf`);
       await logOutgoing({
         tenantId,
-        waId: targetWaId,
+        waId: logWaId,
         providerMsgId: docMsgId,
         body: `📄 Factura pedido-${orderId}.pdf`,
         msgType: 'document',
@@ -74,10 +79,10 @@ async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, cour
         ? `\nLink de rastreo: ${trackingUrl}`
         : '';
       const confirmMsg = `Su orden ha sido confirmada. Le adjuntamos la factura de consumidor final.${trackingLine}`;
-      const textMsgId = await sendWaText(tenant, targetWaId, confirmMsg);
+      const textMsgId = await sendWaText(tenant, sendToWaId, confirmMsg);
       await logOutgoing({
         tenantId,
-        waId: targetWaId,
+        waId: logWaId,
         providerMsgId: textMsgId,
         body: confirmMsg,
         msgType: 'text',
@@ -87,17 +92,17 @@ async function onOrderConfirmed(tenantId, orderId, { labelUrl, trackingUrl, cour
       const msg = trackingUrl
         ? `Su orden ha sido confirmada. Puede rastrear su envío aquí:\n${trackingUrl}`
         : `Su orden ha sido confirmada.`;
-      const textMsgId = await sendWaText(tenant, targetWaId, msg);
+      const textMsgId = await sendWaText(tenant, sendToWaId, msg);
       await logOutgoing({
         tenantId,
-        waId: targetWaId,
+        waId: logWaId,
         providerMsgId: textMsgId,
         body: msg,
         msgType: 'text',
         meta: { source: 'order_confirmed', orderId }
       });
     }
-    logger.info({ orderId, targetWaId }, 'Order confirmation sent via WhatsApp');
+    logger.info({ orderId, sendToWaId, logWaId }, 'Order confirmation sent via WhatsApp');
   } catch (err) {
     logger.error({ err, orderId }, 'Failed to send order confirmation via WhatsApp');
   }
