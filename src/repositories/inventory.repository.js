@@ -44,6 +44,13 @@ export const inventoryRepository = {
    * Adjusts inventory and returns qty_before/qty_after for movement tracking
    */
   async adjustWithMovement(tenantId, productId, delta) {
+    // Ensure inventory row exists for products created before having one
+    await pool.query(
+      `INSERT INTO inventory (product_id, qty_on_hand, qty_reserved, low_stock_threshold)
+       SELECT $2, 0, 0, 0 FROM product WHERE id = $2 AND tenant_id = $1
+       ON CONFLICT (product_id) DO NOTHING`,
+      [tenantId, productId]
+    );
     const { rows } = await pool.query(
       `UPDATE inventory i
        SET qty_on_hand = i.qty_on_hand + $3,
@@ -113,6 +120,12 @@ export const inventoryRepository = {
    * Sets the low_stock_threshold for a product
    */
   async setLowStockThreshold(tenantId, productId, threshold) {
+    await pool.query(
+      `INSERT INTO inventory (product_id, qty_on_hand, qty_reserved, low_stock_threshold)
+       SELECT $2, 0, 0, 0 FROM product WHERE id = $2 AND tenant_id = $1
+       ON CONFLICT (product_id) DO NOTHING`,
+      [tenantId, productId]
+    );
     const { rows } = await pool.query(
       `UPDATE inventory i
        SET low_stock_threshold = $3,
