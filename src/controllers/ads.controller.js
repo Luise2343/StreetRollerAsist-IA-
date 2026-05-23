@@ -9,7 +9,7 @@ async function fetchProductsByIds(tenantId, productIds) {
   if (!productIds || productIds.length === 0) return [];
   const placeholders = productIds.map((_, i) => `$${i + 2}`).join(', ');
   const { rows } = await pool.query(
-    `SELECT name, description, base_price, brand, specs, category
+    `SELECT id, name, description, base_price, brand, specs, category, sku
      FROM product
      WHERE tenant_id = $1 AND id IN (${placeholders}) AND active = true
      ORDER BY base_price ASC`,
@@ -42,7 +42,8 @@ async function generateAdPrompt({ tenantId, name, description, price, category, 
         const specs = p.specs && Object.keys(p.specs).length
           ? ' (' + Object.entries(p.specs).slice(0, 4).map(([k, v]) => `${k}: ${v}`).join(', ') + ')'
           : '';
-        return `${precio} → ${p.name}${specs}`;
+        const skuTag = p.sku ? ` [SKU:${p.sku}]` : ` [SKU:${p.id}]`;
+        return `${precio} → ${p.name}${specs}${skuTag}`;
       }).join('\n')
     : price
       ? `$${price} → ${name}${description ? ` (${description})` : ''}`
@@ -72,7 +73,7 @@ Lista los productos con precio → nombre y specs clave. Si el cliente no mencio
 2) Si ya sabe lo que quiere → ir directo al cierre. Solo hacer UNA pregunta de uso si es necesario para recomendar mejor.
 3) Precio + garantía 3 meses + envío gratis → pregunta de cierre: "¿Te lo mandamos?"
 4) Cuando confirme: pedir nombre / teléfono / dirección con referencia / método de pago en UN solo mensaje.
-5) Llamar create_order en cuanto tengas los 4 datos. Luego llamar notify_owner con reason='ready_to_buy'.
+5) Llamar create_order en cuanto tengas los 4 datos. Usa como product_sku el valor [SKU:xxx] del producto confirmado (está indicado en la lista de PRODUCTOS DEL ANUNCIO). Luego llamar notify_owner con reason='ready_to_buy'.
 
 4. PAGO Y ENTREGA
 Contra entrega o transferencia (Bancoagrícola, LUIS VELASCO, Cuenta de Ahorro 3670383795).

@@ -362,7 +362,19 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
         }
 
         try {
-          const product = await productRepository.findBySku(tenant.id, product_sku);
+          // Bug fix: cascade fallbacks when product has no SKU or AI used name/id instead
+          let product = await productRepository.findBySku(tenant.id, product_sku);
+          if (!product && product_sku) {
+            // Fallback 1: search by name (AI may have used the product name as SKU)
+            const fallback = await searchProducts({ tenantId: tenant.id, text: product_sku });
+            if (fallback?.length === 1) {
+              product = { id: fallback[0].id, name: fallback[0].name, basePrice: fallback[0].price, sku: fallback[0].sku };
+            }
+          }
+          if (!product && product_sku && /^\d+$/.test(String(product_sku).trim())) {
+            // Fallback 2: numeric ID — ads module uses product ID when SKU is null
+            product = await productRepository.findById(tenant.id, Number(product_sku));
+          }
           if (!product) {
             logger.warn({ action: 'create_order_sku_not_found', tenantId: tenant.id, product_sku });
             sendPushToTenant(tenant.id, {
