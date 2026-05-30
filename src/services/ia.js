@@ -21,6 +21,47 @@ if (OPENAI_ENABLED && process.env.OPENAI_API_KEY) {
   openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
+const GENERIC_PRODUCT_TRIGGERS = [
+  'precio', 'precios', 'cuesta', 'cuestan', 'cuanto', 'cuanta',
+  'venden', 'vendes', 'vende', 'tienen', 'tienes', 'tiene',
+  'manejan', 'manejas', 'maneja', 'hay', 'disponible', 'disponibles',
+  'recomiendas', 'recomienda', 'recomendacion', 'recomendaciones',
+  'producto', 'productos', 'modelo', 'modelos', 'marca', 'marcas',
+  'stock', 'catalogo', 'opciones', 'comprar'
+];
+
+function normalizeText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+}
+
+function buildTriggerSet(categories) {
+  const set = new Set(GENERIC_PRODUCT_TRIGGERS.map(normalizeText));
+  for (const c of categories || []) {
+    if (c.slug) set.add(normalizeText(c.slug));
+    if (c.label) set.add(normalizeText(c.label));
+    for (const s of c.synonyms || []) {
+      const n = normalizeText(s);
+      if (n) set.add(n);
+    }
+  }
+  return set;
+}
+
+function looksLikeProductQuery(userText, triggers) {
+  if (!userText || !triggers?.size) return false;
+  const tokens = normalizeText(userText).split(/[^a-z0-9]+/).filter(Boolean);
+  for (const tok of tokens) {
+    if (triggers.has(tok)) return true;
+  }
+  for (let i = 0; i < tokens.length - 1; i++) {
+    if (triggers.has(tokens[i] + ' ' + tokens[i + 1])) return true;
+  }
+  return false;
+}
+
 function collectSpecKeys(categories) {
   const keys = new Set();
   for (const c of categories || []) {
@@ -119,6 +160,7 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
 
   const categories = await tenantRepository.listCategories(tenant.id);
   const specKeys = collectSpecKeys(categories);
+  const triggerSet = buildTriggerSet(categories);
   const SLOTS_SCHEMA = await buildSlotsPolicyJsonForTenant(tenant.id);
 
   const model = tenant.ai_model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -262,12 +304,28 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     }
   ];
 
+  const forceToolName = looksLikeProductQuery(userText, triggerSet)
+    ? (adProducts.length ? 'getAdProducts' : 'searchProducts')
+    : null;
+  const toolChoice = forceToolName
+    ? { type: 'function', function: { name: forceToolName } }
+    : 'auto';
+
+  if (forceToolName) {
+    logger.debug({
+      action: 'tool_choice_forced',
+      tenantId: tenant.id,
+      waId,
+      tool: forceToolName
+    });
+  }
+
   try {
     const r = await openai.chat.completions.create({
       model,
       messages,
       tools,
-      tool_choice: 'auto'
+      tool_choice: toolChoice
     });
 
     const choice = r.choices?.[0]?.message;
