@@ -23,8 +23,16 @@ export async function searchProducts({
   const conditions = ['p.tenant_id = $1', 'p.active = true'];
 
   if (text && String(text).trim()) {
-    params.push(`%${String(text).trim()}%`);
-    conditions.push(`(p.name ILIKE $${params.length} OR p.description ILIKE $${params.length})`);
+    const cleaned = String(text).trim();
+    params.push(`%${cleaned}%`);
+    const likeIdx = params.length;
+    params.push(cleaned);
+    const ftsIdx = params.length;
+    conditions.push(
+      `(p.name ILIKE $${likeIdx} OR p.description ILIKE $${likeIdx}` +
+        ` OR to_tsvector('spanish', coalesce(p.name,'') || ' ' || coalesce(p.description,''))` +
+        ` @@ plainto_tsquery('spanish', $${ftsIdx}))`
+    );
   }
   if (category) {
     params.push(String(category).trim());
