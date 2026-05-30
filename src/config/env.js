@@ -32,10 +32,16 @@ const envSchema = z.object({
 
   // OpenAI
   OPENAI_API_KEY: z.string().min(1, 'OPENAI_API_KEY is required'),
-  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_MODEL: z.string().default('gpt-5-mini'),
   OPENAI_ENABLED: boolish.default('true'),
   AI_LANG: z.string().default('es'),
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(80),
+
+  // Tope mensual de gasto en IA (USD). Al alcanzarlo, el agente degrada
+  // automáticamente al modelo económico (AI_FALLBACK_MODEL) y avisa al dueño.
+  AI_MONTHLY_BUDGET_USD: z.coerce.number().nonnegative().default(5),
+  AI_FALLBACK_MODEL: z.string().default('gpt-4o-mini'),
+  AI_BUDGET_CACHE_SEC: z.coerce.number().int().positive().default(60),
 
   // Context
   CTX_TURNS: z.coerce.number().int().positive().default(6),

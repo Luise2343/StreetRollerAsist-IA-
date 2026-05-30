@@ -31,8 +31,10 @@ npm run dev
 | `WHATSAPP_VERIFY_TOKEN` | Si | Token de verificacion del webhook |
 | `META_APP_SECRET` | Recomendado | Para validar firma HMAC de Meta |
 | `PORT` | No | Puerto HTTP (default: `3000`) |
-| `OPENAI_MODEL` | No | Modelo OpenAI (default: `gpt-4o-mini`) |
+| `OPENAI_MODEL` | No | Modelo OpenAI (default: `gpt-5-mini`) |
 | `AI_MAX_OUTPUT_TOKENS` | No | Limite de tokens en respuestas (default: `120`) |
+| `AI_MONTHLY_BUDGET_USD` | No | Tope mensual estimado de IA en USD (default: `5`) |
+| `AI_FALLBACK_MODEL` | No | Modelo economico al superar el tope (default: `gpt-4o-mini`) |
 | `CTX_TURNS` | No | Turnos maximos en RAM (default: `6`) |
 | `CTX_TTL_MIN` | No | TTL de sesion en minutos (default: `120`) |
 | `SUM_INACTIVITY_MIN` | No | Minutos de inactividad para resumir (default: `180`) |

@@ -6,6 +6,8 @@ import { tenantRepository } from '../repositories/tenant.repository.js';
 import { logger } from '../config/logger.js';
 import { subscribeConv, unsubscribeConv, subscribeGlobal, unsubscribeGlobal } from '../services/sse.service.js';
 import { sendError } from '../middleware/error-handler.js';
+import { aiUsageRepository } from '../repositories/ai-usage.repository.js';
+import { AI_BUDGET_USD } from '../services/ai-budget.js';
 
 function tenantId(req) {
   return parseInt(req.query.tenantId || '3', 10);
@@ -188,6 +190,28 @@ export async function getMetrics(req, res) {
   });
 }
 
+export async function getAiUsage(req, res) {
+  const tid = tenantId(req);
+  const range = req.query.range || '30D';
+  const days = range === '1D' ? 1 : range === '7D' ? 7 : range === '30D' ? 30 : 90;
+
+  const s = await aiUsageRepository.summary(tid, days);
+  const budget = AI_BUDGET_USD;
+  const usedPct = budget > 0 ? Math.round((s.monthCostUsd / budget) * 100) : 0;
+
+  res.json({
+    ok: true,
+    data: {
+      budgetUsd: budget,
+      monthCostUsd: Number(s.monthCostUsd.toFixed(4)),
+      usedPct,
+      monthTokens: s.monthTokens,
+      byModel: s.byModel,
+      daily: s.daily
+    }
+  });
+}
+
 export async function sendImage(req, res) {
   const tid = tenantId(req);
   const { waId } = req.params;
@@ -229,7 +253,13 @@ export function sseConvStream(req, res) {
   res.write(': connected\n\n');
 
   subscribeConv(waId, res);
-  const hb = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 25000);
+  const hb = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (e) {
+      logger.debug({ err: e.message, waId }, 'sse conversation heartbeat failed');
+    }
+  }, 25000);
   req.on('close', () => { clearInterval(hb); unsubscribeConv(waId, res); });
 }
 
@@ -241,7 +271,13 @@ export function sseGlobalStream(req, res) {
   res.write(': connected\n\n');
 
   subscribeGlobal(res);
-  const hb = setInterval(() => { try { res.write(': heartbeat\n\n'); } catch {} }, 25000);
+  const hb = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (e) {
+      logger.debug({ err: e.message }, 'sse global heartbeat failed');
+    }
+  }, 25000);
   req.on('close', () => { clearInterval(hb); unsubscribeGlobal(res); });
 }
 

@@ -1,12 +1,26 @@
 // src/services/summarize.service.js
 import { pool } from '../config/db.js';
 import OpenAI from 'openai';
+import { resolveModel } from './ai-budget.js';
+import { recordCompletionUsage } from './ai-usage.recorder.js';
+import { maxTokensParam } from './ai-params.js';
 
 export const INACT_MIN = Number(process.env.SUM_INACTIVITY_MIN || process.env.CTX_TTL_MIN || 180);
 export const SUM_MAX_MSGS = Number(process.env.SUM_MAX_MSGS || 120);
 export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Resuelve el modelo respetando el tope mensual; sin tenant usa el modelo base.
+async function pickModel(tenantId) {
+  if (!tenantId) return MODEL;
+  try {
+    const { model } = await resolveModel(tenantId, MODEL);
+    return model;
+  } catch {
+    return MODEL;
+  }
+}
 
 function buildTranscript(rows) {
   return rows
@@ -41,7 +55,7 @@ export function mergeFacts(prev = {}, next = {}) {
   return merged;
 }
 
-export async function summarizeCombined(prevSummary, newTranscript) {
+export async function summarizeCombined(prevSummary, newTranscript, meta = {}) {
   const messages = [
     {
       role: 'system',
@@ -59,15 +73,17 @@ export async function summarizeCombined(prevSummary, newTranscript) {
     }
   ];
 
+  const model = await pickModel(meta.tenantId);
   const r = await openai.chat.completions.create({
-    model: MODEL,
+    model,
     messages,
-    max_tokens: 260
+    ...maxTokensParam(model, 260)
   });
+  recordCompletionUsage(r, { tenantId: meta.tenantId, waId: meta.waId, purpose: 'summary' });
   return (r.choices?.[0]?.message?.content || '').trim();
 }
 
-export async function extractFactsWithAI(transcript) {
+export async function extractFactsWithAI(transcript, meta = {}) {
   const schemaHint = `Devuelve SOLO JSON con esta forma:
 {
   "name": string | null,
@@ -75,8 +91,9 @@ export async function extractFactsWithAI(transcript) {
   "notes": string | null
 }
 "preferences" es un objeto libre con pares clave-valor (presupuesto, categoría, talla, etc.).`;
+  const model = await pickModel(meta.tenantId);
   const r = await openai.chat.completions.create({
-    model: MODEL,
+    model,
     messages: [
       {
         role: 'system',
@@ -84,8 +101,9 @@ export async function extractFactsWithAI(transcript) {
       },
       { role: 'user', content: schemaHint + '\n\nConversación:\n' + transcript }
     ],
-    max_tokens: 220
+    ...maxTokensParam(model, 220)
   });
+  recordCompletionUsage(r, { tenantId: meta.tenantId, waId: meta.waId, purpose: 'facts' });
 
   const raw = (r.choices?.[0]?.message?.content || '').trim();
   try {
@@ -147,7 +165,7 @@ export async function summarizeIfInactive(tenantId, waId) {
 
   let summaryText;
   try {
-    summaryText = await summarizeCombined(prevSummary, transcript);
+    summaryText = await summarizeCombined(prevSummary, transcript, { tenantId, waId });
     if (!summaryText)
       summaryText = `Resumen acumulado de ${prevCount + count} mensajes (hasta id ${toId}).`;
   } catch (e) {
@@ -157,7 +175,7 @@ export async function summarizeIfInactive(tenantId, waId) {
 
   let facts = {};
   try {
-    facts = await extractFactsWithAI(transcript);
+    facts = await extractFactsWithAI(transcript, { tenantId, waId });
   } catch (e) {
     console.error('extractFactsWithAI error:', e.message);
   }

@@ -11,6 +11,9 @@ import { sendPushToTenant } from './push.service.js';
 import { notificationService } from './business/notification.service.js';
 import { logger } from '../config/logger.js';
 import { runEscalationChecks } from './escalation-detector.js';
+import { resolveModel } from './ai-budget.js';
+import { recordCompletionUsage } from './ai-usage.recorder.js';
+import { maxTokensParam } from './ai-params.js';
 
 const OWNER_PHONE = process.env.OWNER_PHONE || '50373130634';
 
@@ -136,10 +139,16 @@ function buildToolResponseMessages(messages, assistantMessage, handledCall, tool
 }
 
 async function answerWithProducts(messages, choice, call, products, maxTokens, escalationCtx = null) {
+  const model = choice.model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const r2 = await openai.chat.completions.create({
-    model: choice.model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    model,
     messages: buildToolResponseMessages(messages, choice, call, JSON.stringify(products)),
-    max_tokens: maxTokens
+    ...maxTokensParam(model, maxTokens)
+  });
+  recordCompletionUsage(r2, {
+    tenantId: escalationCtx?.tenantId,
+    waId: escalationCtx?.waId,
+    purpose: 'agent'
   });
 
   const reply = r2.choices?.[0]?.message?.content?.trim() || null;
@@ -163,7 +172,12 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
   const triggerSet = buildTriggerSet(categories);
   const SLOTS_SCHEMA = await buildSlotsPolicyJsonForTenant(tenant.id);
 
-  const model = tenant.ai_model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const preferredModel = tenant.ai_model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  // Aplica el tope mensual: si se superó el presupuesto, degrada al modelo económico.
+  const { model, degraded } = await resolveModel(tenant.id, preferredModel);
+  if (degraded) {
+    logger.warn({ tenantId: tenant.id, waId, preferredModel, model }, 'ai model degraded by budget');
+  }
   const maxOut = Math.max(
     1,
     parseInt(
@@ -327,6 +341,7 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       tools,
       tool_choice: toolChoice
     });
+    recordCompletionUsage(r, { tenantId: tenant.id, waId, purpose: 'agent' });
 
     const choice = r.choices?.[0]?.message;
     if (choice?.tool_calls?.[0]) {
@@ -408,8 +423,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           const r2 = await openai.chat.completions.create({
             model,
             messages: buildToolResponseMessages(messages, choice, call, toolResult),
-            max_tokens: maxOut
+            ...maxTokensParam(model, maxOut)
           });
+          recordCompletionUsage(r2, { tenantId: tenant.id, waId, purpose: 'agent' });
 
           return r2.choices?.[0]?.message?.content?.trim() || null;
         } catch (error) {
@@ -468,8 +484,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
             const r2 = await openai.chat.completions.create({
               model,
               messages: buildToolResponseMessages(messages, choice, call, JSON.stringify({ order_id: existing.id, total: existing.total, status: existing.status })),
-              max_tokens: maxOut
+              ...maxTokensParam(model, maxOut)
             });
+            recordCompletionUsage(r2, { tenantId: tenant.id, waId, purpose: 'agent' });
             return r2.choices?.[0]?.message?.content?.trim() ||
               `✅ Tu orden ya fue registrada (#${existing.id}). Nos pondremos en contacto contigo pronto para coordinar la entrega. ¡Gracias!`;
           }
@@ -515,8 +532,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           const r2 = await openai.chat.completions.create({
             model,
             messages: buildToolResponseMessages(messages, choice, call, toolResult),
-            max_tokens: maxOut
+            ...maxTokensParam(model, maxOut)
           });
+          recordCompletionUsage(r2, { tenantId: tenant.id, waId, purpose: 'agent' });
           return r2.choices?.[0]?.message?.content?.trim() ||
             `✅ Tu orden ha sido registrada con éxito (#${order.id}). Nos pondremos en contacto contigo pronto para coordinar la entrega. ¡Gracias!`;
         } catch (error) {
@@ -603,8 +621,9 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
           const r2 = await openai.chat.completions.create({
             model,
             messages: buildToolResponseMessages(messages, choice, call, toolResult),
-            max_tokens: maxOut
+            ...maxTokensParam(model, maxOut)
           });
+          recordCompletionUsage(r2, { tenantId: tenant.id, waId, purpose: 'agent' });
 
           return r2.choices?.[0]?.message?.content?.trim() || null;
         } catch (error) {

@@ -43,6 +43,7 @@ router.get('/tenants/:tenantId/orders/:orderId/invoice', ordersAdmin.getInvoice)
 router.delete('/tenants/:tenantId/orders/:orderId', ordersAdmin.deleteOrder);
 
 router.get('/metrics', conv.getMetrics);
+router.get('/ai-usage', conv.getAiUsage);
 router.get('/events', conv.sseGlobalStream);
 router.get('/conversations', conv.listConversations);
 router.get('/conversations/:waId/events', conv.sseConvStream);
