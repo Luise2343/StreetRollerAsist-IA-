@@ -1,22 +1,6 @@
-import OpenAI from 'openai';
 import { pool } from '../config/db.js';
 import { adMapRepository } from '../repositories/ad-map.repository.js';
 import { logger } from '../config/logger.js';
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-async function fetchProductsByIds(tenantId, productIds) {
-  if (!productIds || productIds.length === 0) return [];
-  const placeholders = productIds.map((_, i) => `$${i + 2}`).join(', ');
-  const { rows } = await pool.query(
-    `SELECT id, name, description, base_price, brand, specs, category, sku
-     FROM product
-     WHERE tenant_id = $1 AND id IN (${placeholders}) AND active = true
-     ORDER BY base_price ASC`,
-    [tenantId, ...productIds]
-  );
-  return rows;
-}
 
 export async function listProducts(req, res) {
   const tenantId = Number(req.params.tenantId);
@@ -33,73 +17,6 @@ export async function listProducts(req, res) {
   res.json({ ok: true, data: rows });
 }
 
-async function generateAdPrompt({ tenantId, name, description, price, category, productIds }) {
-  const products = await fetchProductsByIds(tenantId, productIds);
-
-  const productLines = products.length
-    ? products.map(p => {
-        const precio = p.base_price != null ? `$${Number(p.base_price).toFixed(2)}` : 'precio a consultar';
-        const specs = p.specs && Object.keys(p.specs).length
-          ? ' (' + Object.entries(p.specs).slice(0, 4).map(([k, v]) => `${k}: ${v}`).join(', ') + ')'
-          : '';
-        const skuTag = p.sku ? ` [SKU:${p.sku}]` : ` [SKU:${p.id}]`;
-        return `${precio} → ${p.name}${specs}${skuTag}`;
-      }).join('\n')
-    : price
-      ? `$${price} → ${name}${description ? ` (${description})` : ''}`
-      : `${name}${description ? ` — ${description}` : ''}`;
-
-  const content = `Eres un experto en redactar system prompts para agentes de ventas de WhatsApp.
-
-Genera un system prompt para el agente de VoltiPod que atenderá clientes que llegaron desde el anuncio de Meta: "${name}".
-
-PRODUCTOS DEL ANUNCIO (con precios y specs reales):
-${productLines}
-
-El system prompt que generes DEBE seguir exactamente esta estructura (6 secciones numeradas):
-
-0. REGLA CRÍTICA — LONGITUD
-Máximo 280 caracteres por mensaje. Texto plano, sin asteriscos ni guiones. Saltos de línea simples.
-
-1. IDENTIDAD
-Eres el asesor de ventas de VoltiPod por WhatsApp. El cliente llegó desde un anuncio de [tema del anuncio]. Habla en español, tutéalo siempre (nunca "usted"), tono directo y cercano como un buen vendedor humano.
-Frases PROHIBIDAS: "Permítame", "Con mucho gusto le asisto", "Usted se interesa en", "Un momento por favor".
-
-2. CONTEXTO DEL ANUNCIO
-Lista los productos con precio → nombre y specs clave. Si el cliente no menciona precio, pregunta cuál le llamó la atención.
-
-3. FLUJO DE VENTA
-1) Confirmar el producto con una frase corta y directa.
-2) Si ya sabe lo que quiere → ir directo al cierre. Solo hacer UNA pregunta de uso si es necesario para recomendar mejor.
-3) Precio + garantía 3 meses + envío gratis → pregunta de cierre: "¿Te lo mandamos?"
-4) Cuando confirme: pedir nombre / teléfono / dirección con referencia / método de pago en UN solo mensaje.
-5) Llamar create_order en cuanto tengas los 4 datos. Usa como product_sku el valor [SKU:xxx] del producto confirmado (está indicado en la lista de PRODUCTOS DEL ANUNCIO). Luego llamar notify_owner con reason='ready_to_buy'.
-
-4. PAGO Y ENTREGA
-Contra entrega o transferencia (Bancoagrícola, LUIS VELASCO, Cuenta de Ahorro 3670383795).
-Si transfiere: compartir datos bancarios y pedir comprobante.
-Entrega: 2-3 días hábiles. San Salvador: mismo día (2-3 horas).
-
-5. ESCALACIÓN
-Llamar notify_owner con reason apropiado si:
-- Reclamo post-venta → reason='complaint'
-- Cliente pide hablar con humano → reason='other'
-Responder: "Ahora te comunico con un asesor, un momento."
-
-6. REGLAS DURAS
-No inventar specs ni precios. No prometer descuentos. No usar mayúsculas para enfatizar. Máximo 5 ítems en listas. No compartir datos bancarios hasta que el cliente confirme transferencia.
-
-Devuelve SOLO el texto del system prompt, con las 6 secciones numeradas. Usa los productos y precios reales indicados arriba. No agregues introducción ni explicación.`;
-
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-    messages: [{ role: 'user', content }],
-    max_tokens: 900,
-    temperature: 0.3
-  });
-  return completion.choices[0].message.content.trim();
-}
-
 export async function listAds(req, res) {
   const tenantId = Number(req.params.tenantId);
   const rows = await adMapRepository.findAll(tenantId);
@@ -113,7 +30,8 @@ export async function createAd(req, res) {
   if (!ad_id || !name) {
     return res.status(400).json({ ok: false, error: 'ad_id y name son requeridos' });
   }
-  if (!product_ids || product_ids.length === 0) {
+  const ids = Array.isArray(product_ids) ? product_ids.map(Number).filter(Number.isInteger) : [];
+  if (!ids.length) {
     return res.status(400).json({ ok: false, error: 'Debes seleccionar al menos un producto' });
   }
 
@@ -125,29 +43,31 @@ export async function createAd(req, res) {
     return res.status(409).json({ ok: false, error: msg });
   }
 
-  logger.info({ tenantId, ad_id, product_ids }, 'generating ad system prompt');
-  const system_prompt = await generateAdPrompt({ tenantId, name, description, price, category, productIds: product_ids });
-
-  const row = await adMapRepository.create(tenantId, { ad_id, name, description, price, category, system_prompt });
+  const row = await adMapRepository.create(tenantId, {
+    ad_id,
+    name,
+    description,
+    price,
+    category,
+    product_ids: ids
+  });
+  logger.info({ tenantId, adMapId: row.id, ad_id, products: ids.length }, 'ad created');
   res.status(201).json({ ok: true, data: row });
 }
 
 export async function updateAd(req, res) {
   const tenantId = Number(req.params.tenantId);
   const id = Number(req.params.adId);
-  const { regenerate_prompt, system_prompt, ...rest } = req.body;
+  const { name, description, price, category, active, product_ids } = req.body;
 
-  const fields = { ...rest };
-
-  if (regenerate_prompt && !system_prompt) {
-    const current = await adMapRepository.findAll(tenantId).then(rows => rows.find(r => r.id === id));
-    if (!current) return res.status(404).json({ ok: false, error: 'Anuncio no encontrado' });
-    const merged = { name: current.name, description: current.description, price: current.price, ...rest };
-    const productIds = rest.product_ids ?? [];
-    logger.info({ tenantId, id }, 'regenerating ad system prompt');
-    fields.system_prompt = await generateAdPrompt({ tenantId, ...merged, productIds });
-  } else if (system_prompt !== undefined) {
-    fields.system_prompt = system_prompt;
+  const fields = {};
+  if (name !== undefined) fields.name = name;
+  if (description !== undefined) fields.description = description;
+  if (price !== undefined) fields.price = price;
+  if (category !== undefined) fields.category = category;
+  if (active !== undefined) fields.active = active;
+  if (Array.isArray(product_ids)) {
+    fields.product_ids = product_ids.map(Number).filter(Number.isInteger);
   }
 
   const row = await adMapRepository.update(tenantId, id, fields);
@@ -185,7 +105,7 @@ export async function createProduct(req, res) {
       tenantId,
       name.trim(),
       description?.trim() || null,
-      base_price != null ? Number(base_price) : null,
+      base_price !== null && base_price !== undefined ? Number(base_price) : null,
       category?.trim() || null,
       brand?.trim() || null,
       JSON.stringify(specs || {}),

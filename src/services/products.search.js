@@ -17,10 +17,12 @@ export async function searchProducts({
   brand = null,
   specs = null,
   priceMin = null,
-  priceMax = null
+  priceMax = null,
+  limit = 20
 }) {
   const params = [tenantId];
   const conditions = ['p.tenant_id = $1', 'p.active = true'];
+  const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 50);
 
   if (text && String(text).trim()) {
     const cleaned = String(text).trim();
@@ -64,7 +66,7 @@ export async function searchProducts({
     LEFT JOIN inventory inv ON inv.product_id = p.id
     WHERE ${conditions.join(' AND ')}
     ORDER BY p.name ASC
-    LIMIT 5
+    LIMIT ${safeLimit}
   `;
 
   if (process.env.NODE_ENV !== 'production') {
@@ -76,7 +78,8 @@ export async function searchProducts({
   return rows || [];
 }
 
-export async function listAllProducts(tenantId) {
+export async function listAllProducts(tenantId, { limit = 20 } = {}) {
+  const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 50);
   const sql = `
     SELECT
       p.id, p.name, p.description,
@@ -86,7 +89,7 @@ export async function listAllProducts(tenantId) {
     LEFT JOIN inventory inv ON inv.product_id = p.id
     WHERE p.tenant_id = $1 AND p.active = true
     ORDER BY p.name ASC
-    LIMIT 10
+    LIMIT ${safeLimit}
   `;
   const { rows } = await pool.query(sql, [tenantId]);
   return rows || [];

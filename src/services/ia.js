@@ -133,10 +133,11 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
   // Use ad_id from current message referral, or from persistent profile if no summary yet
   // (summary signals a new conversation — revert to standard tenant prompt)
   const adId = ctx?.currentAdId ?? (!ctx?.summary ? ctx?.profileFacts?.referral?.ad_id : null) ?? null;
-  const adEntry = adId ? await adMapRepository.findByAdId(tenant.id, adId).catch(() => null) : null;
-  const SYSTEM = adEntry?.system_prompt
-    ? adEntry.system_prompt
-    : await buildSystemPromptForTenant(tenant);
+  const adEntry = adId
+    ? await adMapRepository.findByAdIdWithProducts(tenant.id, adId).catch(() => null)
+    : null;
+  const adProducts = adEntry?.products || [];
+  const SYSTEM = await buildSystemPromptForTenant(tenant, { adEntry, adProducts });
 
   const messages = [{ role: 'system', content: SYSTEM }];
 
@@ -166,19 +167,6 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     });
   }
 
-  // Ad-specific prompt already applied above; add fallback hint only when no system_prompt
-  if (adEntry && !adEntry.system_prompt) {
-    const priceHint = adEntry.price ? ` — $${Number(adEntry.price).toFixed(2)}` : '';
-    messages.push({
-      role: 'system',
-      content:
-        `El cliente llegó desde un anuncio de Meta: "${adEntry.name}"${priceHint}` +
-        (adEntry.description ? `. ${adEntry.description}` : '') +
-        `. Usa searchProducts para encontrar el producto exacto y abre la conversación recomendándolo directamente.` +
-        ` Mantén toda la conversación centrada en ese producto. Solo cambia si el cliente lo pide explícitamente.`
-    });
-  }
-
   for (const t of ctx?.turns ?? []) {
     const u = (t?.user ?? '').trim();
     const a = (t?.assistant ?? '').trim();
@@ -194,7 +182,16 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       type: 'function',
       function: {
         name: 'listAllProducts',
-        description: 'Listar productos activos del comercio (máx. 10)',
+        description: 'Listar productos activos del comercio (máx. 20)',
+        parameters: { type: 'object', properties: {} }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getAdProducts',
+        description:
+          'Listar los productos vinculados al anuncio por el que llegó el cliente. Úsalo al inicio de la conversación o cuando el cliente pregunte qué tienen disponible.',
         parameters: { type: 'object', properties: {} }
       }
     },
@@ -294,6 +291,23 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
 
       if (call.function.name === 'listAllProducts') {
         const products = await listAllProducts(tenant.id);
+        return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut, { tenantId: tenant.id, waId, userText, ctx });
+      }
+
+      if (call.function.name === 'getAdProducts') {
+        const products = adProducts.length
+          ? adProducts.map(p => ({
+              id: p.id,
+              name: p.name,
+              description: p.description,
+              price: p.base_price,
+              currency: p.currency,
+              category: p.category,
+              brand: p.brand,
+              specs: p.specs,
+              sku: p.sku
+            }))
+          : [];
         return await answerWithProducts(messages, { ...choice, model }, call, products, maxOut, { tenantId: tenant.id, waId, userText, ctx });
       }
 

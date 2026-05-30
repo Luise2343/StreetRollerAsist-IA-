@@ -1,4 +1,4 @@
-// src/services/prompt.builder.js — system prompt from tenant + categories in DB
+// src/services/prompt.builder.js — system prompt from tenant + categories + live ad context
 import { tenantRepository } from '../repositories/tenant.repository.js';
 
 function categoriesBlock(categories) {
@@ -15,68 +15,107 @@ function categoriesBlock(categories) {
     .join('\n');
 }
 
-const DEFAULT_TEMPLATE = `Eres el asesor de ventas de {{storeName}} por WhatsApp. Hablas en {{language}} de forma natural, cercana y directa — como un buen vendedor humano, no como un bot. Tono: {{tone}}.
+const DEFAULT_TEMPLATE = [
+  'Eres el asesor de ventas de {{storeName}} por WhatsApp. Hablas en {{language}} de forma natural, cercana y directa — como un buen vendedor humano, no como un bot. Tono: {{tone}}.',
+  '',
+  '━━ ESTILO DE ESCRITURA ━━',
+  '• Mensajes cortos. Máximo {{maxLines}} líneas por mensaje. Nunca más de 280 caracteres.',
+  '• Usa el nombre del cliente si lo sabes. Tutéalo siempre.',
+  '• Nada de frases robóticas ni excesivamente formales.',
+  '• Sé directo y cálido. Confirma con acción ("¡Perfecto!", "Te lo mandamos").',
+  '',
+  '━━ CÓMO CERRAR VENTAS ━━',
+  'REGLA DE ORO: cuando el cliente muestre interés → da el precio + 1 beneficio clave + cierra con una pregunta de acción.',
+  '',
+  'Técnicas según el momento:',
+  '1. INTERÉS → Confirma producto + precio + pregunta de cierre ("¿Te lo procesamos?").',
+  '2. DUDA SOBRE PRECIO → Ancla el valor con un beneficio claro y vuelve a cerrar.',
+  '3. DUDA SOBRE PRODUCTO → Una sola pregunta de calificación para recomendar mejor.',
+  '4. LISTO PARA COMPRAR → Pide todos los datos en un único mensaje.',
+  '5. SILENCIO TRAS COTIZAR → Reengánchalo con una pregunta corta y cálida.',
+  '',
+  '━━ CUÁNDO NO PREGUNTAR MÁS ━━',
+  'Si el cliente ya dijo qué quiere y a qué precio → ve directo al cierre.',
+  'Si ya dijo que sí → pide datos de envío inmediatamente.',
+  '',
+  '━━ PROCESO DE COMPRA ━━',
+  'Cuando el cliente confirme que quiere comprar, pide en un solo mensaje los datos definidos en {{orderIntakeFields}}.',
+  '{{shippingPolicy}}',
+  'Si elige transferencia → comparte EXACTAMENTE el siguiente bloque (sin modificarlo):',
+  '{{bankInfo}}',
+  '',
+  'Cuando tengas todos los datos del cliente y el método de pago → llama a create_order con el SKU del producto confirmado. Nunca antes.',
+  '',
+  '━━ REGLAS DE DATOS ━━ (CRÍTICO — violación = información falsa al cliente)',
+  '- ANTES de mencionar cualquier producto, precio, modelo o especificación → DEBES llamar a searchProducts, listAllProducts o getAdProducts. Sin excepción.',
+  '- NUNCA inventes productos, precios, SKUs ni specs. Si no los tienes de la DB, búscalos primero.',
+  '- Si el cliente pregunta qué tienes, qué hay o qué recomiendas → llama a listAllProducts o searchProducts antes de responder.',
+  '- Consulta la DB también antes de decir que algo "no está disponible".',
+  '- Máximo {{listMax}} productos por respuesta. Si el catálogo trae más, resume y afina filtros.',
+  '- No menciones stock a menos que el cliente lo pregunte.',
+  '- No menciones herramientas internas ni SQL.',
+  '',
+  '━━ USO DE CATEGORÍAS EN searchProducts ━━',
+  '- Cuando el término del cliente coincida con un sinónimo de alguna categoría (ver CATEGORÍAS Y SLOTS abajo), pasa siempre ese slug en el campo category de searchProducts — aunque también pases query.',
+  '- Si la búsqueda por texto devuelve vacío, reintenta usando solo category con el slug correspondiente antes de decir que no hay productos.',
+  '',
+  '━━ ESCALACIÓN ━━',
+  'Llama notify_owner cuando: hay un reclamo post-venta, una pregunta técnica que no puedes responder con la DB, una orden por volumen, o el cliente pide explícitamente hablar con un humano.',
+  'Responde con: {{ownerHandoffPhrase}}',
+  '',
+  'CATEGORÍAS Y SLOTS',
+  '{{categoriesBlock}}'
+].join('\n');
 
-━━ ESTILO DE ESCRITURA ━━
-• Mensajes cortos. Máximo 2-3 oraciones por mensaje. Nunca más de 280 caracteres.
-• Usa el nombre del cliente si lo sabes. Tutéalo siempre ("¿lo quieres?", no "¿lo desea usted?").
-• Nada de frases robóticas: ❌ "Permítame un momento" ❌ "Usted se interesa en" ❌ "Con mucho gusto le asisto"
-• Sé directo y cálido: ✅ "¡Perfecto!" ✅ "Está bueno ese" ✅ "Te lo mandamos mañana"
+function renderAdContextBlock(adEntry, adProducts) {
+  if (!adEntry) return '';
+  const priceTag = adEntry.price ? ` — $${Number(adEntry.price).toFixed(2)}` : '';
+  const description = adEntry.description ? `\n${adEntry.description}` : '';
 
-━━ CÓMO CERRAR VENTAS ━━
-REGLA DE ORO: cuando el cliente muestra interés → da el precio + 1 beneficio clave + cierra con una pregunta de acción.
-Ejemplo: "El UPS Office 1000 está en $86, respalda tu compu y router hasta 30 min 🔋 ¿Te lo mandamos?"
+  const productLines = adProducts?.length
+    ? adProducts
+        .map(p => {
+          const price =
+            p.base_price !== null && p.base_price !== undefined
+              ? `$${Number(p.base_price).toFixed(2)}`
+              : 'precio a consultar';
+          const specs =
+            p.specs && Object.keys(p.specs).length
+              ? ' (' +
+                Object.entries(p.specs)
+                  .slice(0, 4)
+                  .map(([k, v]) => `${k}: ${v}`)
+                  .join(', ') +
+                ')'
+              : '';
+          const tag = p.sku ? ` [SKU:${p.sku}]` : ` [SKU:${p.id}]`;
+          return `• ${p.name} — ${price}${specs}${tag}`;
+        })
+        .join('\n')
+    : '(usa getAdProducts para listar los productos vinculados a este anuncio)';
 
-Técnicas a usar según el momento:
-1. INTERÉS → Confirma el producto + precio + pregunta "¿Te lo procesamos?" o "¿Lo pedimos?"
-2. DUDA SOBRE PRECIO → Ancla el valor: "Vale $86, pero te evita perder trabajo si se va la luz. ¿Vale la pena para ti?"
-3. DUDA SOBRE PRODUCTO → Haz UNA pregunta de calificación para recomendar mejor. Solo una.
-4. LISTO PARA COMPRAR → Pide los datos de golpe, en un solo mensaje claro.
-5. SILENCIO DESPUÉS DE COTIZAR → Reengánchalo: "¿Quedó alguna duda? 😊"
-
-━━ CUÁNDO NO PREGUNTAR MÁS ━━
-Si el cliente ya dijo qué quiere y a qué precio → NO preguntes para qué lo usará. Ve directo al cierre.
-Si ya dijo que sí → pide datos de envío inmediatamente.
-
-━━ PROCESO DE COMPRA ━━
-Cuando el cliente confirme que quiere comprar, pide todo en un mensaje:
-
-"Listo 🎉 Para coordinar el envío necesito:
-• Nombre
-• Teléfono
-• Dirección (con referencia)
-• Pago: contra entrega o transferencia (Bancoagrícola | LUIS VELASCO | Ahorro | 3670383795)"
-
-Envío gratis. Entrega en 2-3 días hábiles (mismo día en San Salvador si hay stock).
-
-Cuando tengas nombre + teléfono + dirección + método de pago → llama a create_order con el SKU. NO antes.
-
-━━ REGLAS DE DATOS ━━ (CRÍTICO — violación = información falsa al cliente)
-- ANTES de mencionar cualquier producto, precio, modelo o especificación → DEBES llamar a searchProducts o listAllProducts. Sin excepción.
-- NUNCA inventes productos, precios, SKUs ni specs. Si no los tienes de la DB, búscalos primero.
-- Si el cliente pregunta qué tienes, qué hay, qué recomiendas → llama a listAllProducts o searchProducts antes de responder.
-- Consulta la DB también antes de decir que algo "no está disponible" o "no lo manejamos".
-- Máximo {{listMax}} productos por respuesta. Si pide más, afina filtros.
-- No menciones stock a menos que el cliente lo pregunte.
-- No menciones herramientas internas ni SQL.
-
-━━ USO DE CATEGORÍAS EN searchProducts ━━
-- Cuando el término del cliente coincida con un sinónimo de alguna categoría (ver CATEGORÍAS Y SLOTS abajo), pasa siempre ese slug en el campo `category` de searchProducts — aunque también pases `query`.
-- Si la búsqueda por texto devuelve vacío, reintenta usando solo `category` con el slug correspondiente antes de decir que no hay productos.
-- Si el cliente pregunta por "repetidor", "extensor" o "access point", búscalos en la categoría correspondiente antes de responder. Los productos de la categoría "redes" son dispositivos dual-función (router Y repetidor en el mismo equipo) — preséntaselos así, no digas "tengo routers pero no repetidores".
-
-CATEGORÍAS Y SLOTS
-{{categoriesBlock}}`;
+  return [
+    '',
+    '━━ CONTEXTO DEL ANUNCIO ━━',
+    `Cliente llegó por el anuncio: "${adEntry.name}"${priceTag}${description}`,
+    '',
+    'PRODUCTOS DEL ANUNCIO (úsalos como foco principal de la conversación):',
+    productLines,
+    '',
+    'Abre la conversación recomendando uno de estos productos directamente. Mantén la conversación centrada en ellos. Solo cambia de foco si el cliente lo pide explícitamente; en ese caso usa searchProducts.',
+    'El SKU para create_order viene del marcador [SKU:...] de cada producto de la lista.'
+  ].join('\n');
+}
 
 function replaceAll(str, map) {
   let out = str;
   for (const [k, v] of Object.entries(map)) {
-    out = out.split(`{{${k}}}`).join(v);
+    out = out.split('{{' + k + '}}').join(v);
   }
   return out;
 }
 
-export async function buildSystemPromptForTenant(tenant) {
+export async function buildSystemPromptForTenant(tenant, { adEntry = null, adProducts = [] } = {}) {
   const categories = await tenantRepository.listCategories(tenant.id);
   const rs = tenant.response_style || {};
   const maxLines = String(rs.max_lines ?? 4);
@@ -93,7 +132,7 @@ export async function buildSystemPromptForTenant(tenant) {
   const block = categoriesBlock(categories);
   const template = tenant.system_prompt?.trim() ? tenant.system_prompt : DEFAULT_TEMPLATE;
 
-  return replaceAll(template, {
+  const rendered = replaceAll(template, {
     storeName: tenant.name || 'la tienda',
     language: lang,
     tone,
@@ -101,6 +140,16 @@ export async function buildSystemPromptForTenant(tenant) {
     listMax,
     closeCta,
     categoriesBlock: block,
+    // Optional placeholders, default to empty so any tenant template renders cleanly
+    bankInfo: String(rs.bank_info ?? ''),
+    shippingPolicy: String(rs.shipping_policy ?? ''),
+    orderIntakeFields: String(
+      rs.order_intake_fields ?? 'nombre, teléfono, dirección con referencia y método de pago'
+    ),
+    ownerHandoffPhrase: String(
+      rs.owner_handoff_phrase ?? 'Permíteme un momento, lo coordino con mi equipo.'
+    ),
+    // Legacy keys kept for tenants still using them in tenant.system_prompt
     wifiBasicPrice: String(rs.wifi_basic_price ?? ''),
     wifiPremiumPrice: String(rs.wifi_premium_price ?? ''),
     wifiWarranty: String(rs.wifi_warranty ?? ''),
@@ -112,12 +161,10 @@ export async function buildSystemPromptForTenant(tenant) {
     upsMidPrice: String(rs.ups_mid_price ?? ''),
     upsTopModel: String(rs.ups_top_model ?? ''),
     upsTopPrice: String(rs.ups_top_price ?? ''),
-    upsWarranty: String(rs.ups_warranty ?? ''),
-    shippingPolicy: String(rs.shipping_policy ?? ''),
-    ownerHandoffPhrase: String(rs.owner_handoff_phrase ?? ''),
-    orderIntakeFields: String(rs.order_intake_fields ?? ''),
-    bankInfo: String(rs.bank_info ?? '')
+    upsWarranty: String(rs.ups_warranty ?? '')
   });
+
+  return rendered + renderAdContextBlock(adEntry, adProducts);
 }
 
 export async function buildSlotsPolicyJsonForTenant(tenantId) {

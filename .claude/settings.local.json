@@ -25,5 +25,9 @@
       "Bash(node --check /c/Users/luise/StreetRollerAsist-IA-/src/repositories/wa-profile.repository.js /c/Users/luise/StreetRollerAsist-IA-/src/routes/whatsapp.webhook.js /c/Users/luise/StreetRollerAsist-IA-/src/__tests__/wa-profile.repository.test.js)",
       "Bash(xargs grep *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "pipeboard-meta-ads",
+    "composio"
+  ]
 }
