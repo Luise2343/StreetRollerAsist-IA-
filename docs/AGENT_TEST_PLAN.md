@@ -112,14 +112,23 @@ Configurable con `AI_REASONING_EFFORT` (default `minimal`) y `AI_REASONING_HEADR
 | low | 4.9s | 192 | ✅ |
 | medium (default) | 6.6s | 500 | ❌ vacío |
 
+### ✅ Reclamos ahora escalan (E1) — corregido
+Antes, `looksLikeProductQuery` forzaba `searchProducts` aunque el mensaje fuera un
+reclamo con palabra de producto ("el *repetidor* me llegó dañado") → nunca escalaba.
+**Fix (más escalable):** se **deja de forzar** la tool de producto por defecto y se
+confía en el juicio de gpt-5-mini (`tool_choice:'auto'`). Validado en vivo: el reclamo
+ahora llama `notify_owner`, el orgánico sigue llamando `searchProducts` y el anuncio
+`getAdProducts`. Se elimina la fragilidad de listas de keywords (que además eran
+solo-español). El forzado queda como fallback opt-in: `AI_FORCE_PRODUCT_TOOL=true`.
+
 ### 🟡 Pendientes (decisión de diseño)
-1. **Reclamos no escalan (E1).** Si un reclamo contiene una palabra de producto
-   (ej. "el *repetidor* me llegó dañado"), `looksLikeProductQuery` fuerza
-   `searchProducts` y el modelo nunca llama `notify_owner`. Los reclamos sobre un
-   producto no llegan al dueño. Posible fix: no forzar tool cuando hay señales de
-   reclamo/negativas, o dejar `tool_choice:'auto'` y reforzar el prompt de escalada.
+1. **Cierre no-determinista (C1) — ruta del dinero.** gpt-5-mini a veces emite el
+   pedido como **JSON crudo de texto** en lugar de LLAMAR `create_order`, y la orden
+   no se crea (el cliente recibe `{"name":...,"sku":"RT006"}`). En otras corridas sí
+   cierra bien. Posible fix: regla de prompt explícita ("NUNCA muestres JSON al
+   cliente; para registrar el pedido LLAMA a create_order") en `DEFAULT_TEMPLATE`
+   (genérico, multi-tenant) y/o en el prompt del tenant.
 2. **`classify_lead` nunca se llama (L1).** En `auto` el modelo no la invoca →
    `lead_class` NULL en 132/132 perfiles reales. El handler funciona (test D6).
-   Opciones: (a) clasificar de forma determinista desde el estado del lead en vez de
-   depender del modelo, (b) forzar la tool en momentos clave, o (c) eliminarla si no
-   aporta. Decisión de producto pendiente.
+   Opciones: (a) clasificar de forma determinista desde el estado del lead, (b) forzar
+   la tool en momentos clave, o (c) eliminarla. Decisión de producto pendiente.

@@ -33,6 +33,13 @@ const GENERIC_PRODUCT_TRIGGERS = [
   'stock', 'catalogo', 'opciones', 'comprar'
 ];
 
+// Forzar la tool de producto (tool_choice server-side) era necesario con gpt-4o-mini,
+// que no siempre buscaba. Con gpt-5-mini (mejor juicio) confiamos en el modelo por
+// defecto: así un reclamo ("el repetidor me llegó dañado") puede escalar con
+// notify_owner en vez de quedar atrapado en searchProducts. Se puede reactivar el
+// forzado con AI_FORCE_PRODUCT_TOOL=true.
+const FORCE_PRODUCT_TOOL = (process.env.AI_FORCE_PRODUCT_TOOL ?? 'false') === 'true';
+
 function normalizeText(s) {
   return String(s || '')
     .toLowerCase()
@@ -318,9 +325,12 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
     }
   ];
 
-  const forceToolName = looksLikeProductQuery(userText, triggerSet)
-    ? (adProducts.length ? 'getAdProducts' : 'searchProducts')
-    : null;
+  const forceToolName =
+    FORCE_PRODUCT_TOOL && looksLikeProductQuery(userText, triggerSet)
+      ? adProducts.length
+        ? 'getAdProducts'
+        : 'searchProducts'
+      : null;
   const toolChoice = forceToolName
     ? { type: 'function', function: { name: forceToolName } }
     : 'auto';

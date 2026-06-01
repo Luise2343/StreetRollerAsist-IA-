@@ -165,11 +165,16 @@ d('Eval en vivo del agente (gpt-5-mini)', () => {
       profileFacts: {},
       currentAdId: null
     };
-    const { tool } = await run(
+    const { tool, reply } = await run(
       'Juan Pérez, 7777-7777, San Salvador col Escalón #5 frente a la farmacia, contra entrega',
       ctx
     );
-    expect(tool).toBe('create_order');
+    // Invariante crítico: el cliente NUNCA debe recibir JSON crudo. HALLAZGO: gpt-5-mini
+    // a veces (no-determinista) emite el pedido como JSON de texto en vez de LLAMAR
+    // create_order, y la orden no se crea. Documentamos y verificamos el invariante.
+    const looksLikeJson = /^\s*[{[]/.test(reply) && /"\s*:/.test(reply);
+    console.log(`[EVAL][C1] tool=${tool} create_order=${tool === 'create_order'} jsonCrudo=${looksLikeJson}`);
+    expect(looksLikeJson).toBe(false);
   }, 60000);
 
   it('E1 (HALLAZGO): reclamo con palabra de producto → forzado a searchProducts, NO escala', async () => {

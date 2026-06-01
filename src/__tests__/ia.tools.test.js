@@ -137,8 +137,8 @@ beforeEach(() => {
   findByAdIdWithProductsMock.mockResolvedValue(null);
 });
 
-describe('ruteo anuncio vs orgánico (tool_choice forzado)', () => {
-  it('D1: consulta de producto sin anuncio → fuerza searchProducts', async () => {
+describe('ruteo de tools (default: se confía en el modelo, tool_choice=auto)', () => {
+  it('D1: consulta de producto sin anuncio → tool_choice=auto (no forzado)', async () => {
     createMock
       .mockResolvedValueOnce(toolCallResponse('searchProducts', { query: 'teclados' }))
       .mockResolvedValueOnce(textResponse('Tenemos estos teclados...'));
@@ -146,14 +146,12 @@ describe('ruteo anuncio vs orgánico (tool_choice forzado)', () => {
     const ctx = { turns: [], summary: null, profileFacts: null, currentAdId: null };
     await aiReplyStrict('precio de teclados', ctx, tenant, WA);
 
-    const firstCallArgs = createMock.mock.calls[0][0];
-    expect(firstCallArgs.tool_choice).toEqual({
-      type: 'function',
-      function: { name: 'searchProducts' }
-    });
+    // Con gpt-5-mini no forzamos: el modelo decide. Si elige searchProducts, se ejecuta.
+    expect(createMock.mock.calls[0][0].tool_choice).toBe('auto');
+    expect(searchProductsMock).toHaveBeenCalled();
   });
 
-  it('D2: consulta de producto desde anuncio con productos → fuerza getAdProducts', async () => {
+  it('D2: consulta desde anuncio → tool_choice=auto; si el modelo elige getAdProducts, no toca searchProducts', async () => {
     findByAdIdWithProductsMock.mockResolvedValue({
       id: 1,
       name: 'Repetidores',
@@ -166,11 +164,7 @@ describe('ruteo anuncio vs orgánico (tool_choice forzado)', () => {
     const ctx = { turns: [], summary: null, profileFacts: null, currentAdId: 'AD1' };
     await aiReplyStrict('qué precios manejan', ctx, tenant, WA);
 
-    const firstCallArgs = createMock.mock.calls[0][0];
-    expect(firstCallArgs.tool_choice).toEqual({
-      type: 'function',
-      function: { name: 'getAdProducts' }
-    });
+    expect(createMock.mock.calls[0][0].tool_choice).toBe('auto');
     expect(searchProductsMock).not.toHaveBeenCalled();
   });
 });
