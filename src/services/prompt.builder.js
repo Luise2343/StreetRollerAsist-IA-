@@ -62,6 +62,7 @@ const DEFAULT_TEMPLATE = [
   '{{bankInfo}}',
   '',
   'Cuando tengas todos los datos del cliente y el método de pago → llama a create_order con el SKU del producto confirmado. Nunca antes.',
+  'CIERRE — REGLA DURA: si ya tienes nombre + teléfono + dirección + método de pago, tu ÚNICA acción es LLAMAR a la función create_order. NO vuelvas a buscar productos, NO escribas JSON ni objetos de datos al cliente, NO describas el pedido en texto. El cliente JAMÁS debe ver llaves {}, comillas de campos ni la palabra "sku". Solo confirma en lenguaje natural DESPUÉS de que create_order responda.',
   '',
   '━━ REGLAS DE DATOS ━━ (CRÍTICO — violación = información falsa al cliente)',
   '- ANTES de mencionar cualquier producto, precio, modelo o especificación → DEBES llamar a searchProducts, listAllProducts o getAdProducts. Sin excepción.',

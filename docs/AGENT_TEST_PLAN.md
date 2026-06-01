@@ -121,14 +121,16 @@ ahora llama `notify_owner`, el orgánico sigue llamando `searchProducts` y el an
 `getAdProducts`. Se elimina la fragilidad de listas de keywords (que además eran
 solo-español). El forzado queda como fallback opt-in: `AI_FORCE_PRODUCT_TOOL=true`.
 
+### ✅ Cierre fiable (C1) — corregido
+gpt-5-mini a veces emitía el pedido como **JSON crudo de texto** en lugar de LLAMAR
+`create_order` (el cliente recibía `{"name":...,"sku":"RT006"}` y la orden no se
+creaba). **Fix:** regla dura de cierre en `DEFAULT_TEMPLATE` (genérico, multi-tenant)
+y en el prompt del tenant 3 — "si ya tienes todos los datos, tu ÚNICA acción es LLAMAR
+create_order; NUNCA muestres JSON al cliente". Re-validado en vivo **3/3** corridas:
+`tool=create_order`, sin JSON crudo.
+
 ### 🟡 Pendientes (decisión de diseño)
-1. **Cierre no-determinista (C1) — ruta del dinero.** gpt-5-mini a veces emite el
-   pedido como **JSON crudo de texto** en lugar de LLAMAR `create_order`, y la orden
-   no se crea (el cliente recibe `{"name":...,"sku":"RT006"}`). En otras corridas sí
-   cierra bien. Posible fix: regla de prompt explícita ("NUNCA muestres JSON al
-   cliente; para registrar el pedido LLAMA a create_order") en `DEFAULT_TEMPLATE`
-   (genérico, multi-tenant) y/o en el prompt del tenant.
-2. **`classify_lead` nunca se llama (L1).** En `auto` el modelo no la invoca →
+1. **`classify_lead` nunca se llama (L1).** En `auto` el modelo no la invoca →
    `lead_class` NULL en 132/132 perfiles reales. El handler funciona (test D6).
    Opciones: (a) clasificar de forma determinista desde el estado del lead, (b) forzar
    la tool en momentos clave, o (c) eliminarla. Decisión de producto pendiente.
