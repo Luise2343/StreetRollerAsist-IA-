@@ -339,7 +339,8 @@ export async function aiReplyStrict(userText, ctx, tenant, waId = null) {
       model,
       messages,
       tools,
-      tool_choice: toolChoice
+      tool_choice: toolChoice,
+      ...maxTokensParam(model, maxOut)
     });
     recordCompletionUsage(r, { tenantId: tenant.id, waId, purpose: 'agent' });
 
